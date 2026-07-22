@@ -1,5 +1,5 @@
-use sysinfo::{Components, Disks, System};
 use std::process::Command;
+use sysinfo::{Components, Disks, System};
 
 const UNKNOWN_GPU: &str = "Unknown GPU";
 const ZERO_SWAP: &str = "0 B / 0 B (0%)";
@@ -7,15 +7,24 @@ const NA: &str = "N/A";
 const BATT_DIR: &str = "/sys/class/power_supply";
 const BATT_CAPACITY: &str = "capacity";
 const BATT_STATUS: &str = "status";
-const BATT_PREFIXES: [&str; 6] = ["BAT", "bat", "hidpp_battery", "ucsi_battery", "C22C", "ps-battery"];
+const BATT_PREFIXES: [&str; 6] = [
+    "BAT",
+    "bat",
+    "hidpp_battery",
+    "ucsi_battery",
+    "C22C",
+    "ps-battery",
+];
 
 const LSPCI_CMD: &str = "lspci";
 const WMIC_CMD: &str = "wmic";
 const SYSTEM_PROFILER_CMD: &str = "system_profiler";
 const PMSET_CMD: &str = "pmset";
 const POWERSHELL_CMD: &str = "powershell";
-const GPU_PS_SCRIPT: &str = "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name";
-const BATT_PS_SCRIPT: &str = "Get-CimInstance Win32_Battery | Select-Object EstimatedChargeRemaining, BatteryStatus";
+const GPU_PS_SCRIPT: &str =
+    "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name";
+const BATT_PS_SCRIPT: &str =
+    "Get-CimInstance Win32_Battery | Select-Object EstimatedChargeRemaining, BatteryStatus";
 
 const GPU_CLASS_VGA: &str = "VGA";
 const GPU_CLASS_3D: &str = "3D";
@@ -38,7 +47,10 @@ fn get_gpu_info_linux() -> Vec<String> {
     if let Ok(output) = Command::new(LSPCI_CMD).arg("-mm").output() {
         let out = String::from_utf8_lossy(&output.stdout);
         for line in out.lines() {
-            if line.contains(GPU_CLASS_VGA) || line.contains(GPU_CLASS_3D) || line.contains(GPU_CLASS_DISPLAY) {
+            if line.contains(GPU_CLASS_VGA)
+                || line.contains(GPU_CLASS_3D)
+                || line.contains(GPU_CLASS_DISPLAY)
+            {
                 let parts: Vec<&str> = line.split('"').collect();
                 if parts.len() > 5 {
                     gpus.push(parts[5].to_string());
@@ -179,11 +191,11 @@ fn get_battery_info_linux() -> Option<String> {
             continue;
         }
         let base = entry.path();
-        if let Ok(cap) = std::fs::read_to_string(base.join(BATT_CAPACITY)) {
-            if let Ok(pct) = cap.trim().parse::<u32>() {
-                total_pct += pct;
-                batt_count += 1;
-            }
+        if let Ok(cap) = std::fs::read_to_string(base.join(BATT_CAPACITY))
+            && let Ok(pct) = cap.trim().parse::<u32>()
+        {
+            total_pct += pct;
+            batt_count += 1;
         }
         if let Ok(s) = std::fs::read_to_string(base.join(BATT_STATUS)) {
             let s = s.trim().to_string();
@@ -192,8 +204,7 @@ fn get_battery_info_linux() -> Option<String> {
             }
         }
     }
-    if batt_count > 0 {
-        let avg = total_pct / batt_count;
+    if let Some(avg) = total_pct.checked_div(batt_count) {
         let status = if statuses.is_empty() {
             super::unknown()
         } else {
@@ -226,36 +237,36 @@ fn get_battery_info_windows() -> Option<String> {
             continue;
         }
         let cols: Vec<&str> = trimmed.split_whitespace().collect();
-        if cols.len() >= 2 {
-            if let Ok(pct) = cols[0].parse::<u32>() {
-                let status = match cols.get(1).and_then(|s| s.parse::<u32>().ok()) {
-                    Some(1) => "Discharging",
-                    Some(2) | Some(3) => "Charged",
-                    Some(6) | Some(7) | Some(8) | Some(9) => "Charging",
-                    _ => "Unknown",
-                };
-                return Some(format!("{}% [{}]", pct, status));
-            }
+        if cols.len() >= 2
+            && let Ok(pct) = cols[0].parse::<u32>()
+        {
+            let status = match cols.get(1).and_then(|s| s.parse::<u32>().ok()) {
+                Some(1) => "Discharging",
+                Some(2) | Some(3) => "Charged",
+                Some(6) | Some(7) | Some(8) | Some(9) => "Charging",
+                _ => "Unknown",
+            };
+            return Some(format!("{}% [{}]", pct, status));
         }
     }
     None
 }
 
 pub fn get_battery_info(_components: &Components) -> String {
-    if cfg!(target_os = "macos") {
-        if let Some(info) = get_battery_info_macos() {
-            return info;
-        }
+    if cfg!(target_os = "macos")
+        && let Some(info) = get_battery_info_macos()
+    {
+        return info;
     }
-    if cfg!(target_os = "linux") {
-        if let Some(info) = get_battery_info_linux() {
-            return info;
-        }
+    if cfg!(target_os = "linux")
+        && let Some(info) = get_battery_info_linux()
+    {
+        return info;
     }
-    if cfg!(target_os = "windows") {
-        if let Some(info) = get_battery_info_windows() {
-            return info;
-        }
+    if cfg!(target_os = "windows")
+        && let Some(info) = get_battery_info_windows()
+    {
+        return info;
     }
     NA.to_string()
 }

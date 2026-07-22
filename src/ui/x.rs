@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
 pub fn expand_path(path: &str) -> PathBuf {
-    if path.starts_with("~") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(&path[2..]);
-        }
+    if path.starts_with("~")
+        && let Some(home) = dirs::home_dir()
+    {
+        return home.join(&path[2..]);
     }
     PathBuf::from(path)
 }
@@ -36,7 +36,6 @@ Z0123456789+/woXos/Linux/Rocks/==
     .trim()
     .to_string()
 }
-
 
 //tests
 #[cfg(test)]

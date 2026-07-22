@@ -1,5 +1,5 @@
-use sysinfo::{Networks, System};
 use std::process::Command;
+use sysinfo::{Networks, System};
 
 const POWERSHELL_CMD: &str = "powershell";
 const DATE_CMD: &str = "date";
@@ -54,11 +54,11 @@ pub fn get_datetime_info() -> String {
 pub fn get_local_ip_info(networks: &Networks) -> String {
     for (_name, data) in networks {
         for ip in data.ip_networks() {
-             if let std::net::IpAddr::V4(ipv4) = ip.addr {
-                 if !ipv4.is_loopback() {
-                     return ipv4.to_string();
-                 }
-             }
+            if let std::net::IpAddr::V4(ipv4) = ip.addr
+                && !ipv4.is_loopback()
+            {
+                return ipv4.to_string();
+            }
         }
     }
     "127.0.0.1".to_string()
@@ -93,6 +93,10 @@ mod tests {
     #[test]
     fn test_get_datetime_info() {
         let dt = get_datetime_info();
-        assert!(dt.len() >= 10, "datetime should be at least YYYY-MM-DD: got '{}'", dt);
+        assert!(
+            dt.len() >= 10,
+            "datetime should be at least YYYY-MM-DD: got '{}'",
+            dt
+        );
     }
 }
