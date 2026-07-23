@@ -95,6 +95,13 @@ fn get_module_value(info: &Info, key: &str) -> Option<String> {
         "hostname" | "host" => Some(info.host_name.clone()),
         "wm" => Some(info.desktop.clone()),
         "packages" => Some(info.packages.clone()),
+        key if key.starts_with("packages:") => {
+            let name = key.strip_prefix("packages:")?;
+            info.packages_breakdown
+                .iter()
+                .find(|(cmd, _)| cmd == name)
+                .map(|(_, val)| val.clone())
+        }
         "shell" => Some(info.shell.clone()),
         "cpu" => Some(info.cpu.clone()),
         "gpu" => {
@@ -119,6 +126,9 @@ fn get_module_value(info: &Info, key: &str) -> Option<String> {
         "user" => Some(info.user.clone()),
         "datetime" => Some(info.datetime.clone()),
         "local_ip" => Some(info.local_ip.clone()),
+        "local_ip:v6" => Some(info.local_ip_v6.clone()),
+        "public_ip" => Some(info.public_ip.clone()),
+        "interfaces" => Some(info.network_interfaces.clone()),
         PALETTE_KEY => None,
         HEADER_KEY => Some(format!("{}@{}", info.user, info.host_name)),
         SEP_KEY => Some(SEPARATOR.to_string()),
@@ -170,7 +180,7 @@ mod tests {
     #[test]
     fn test_prepare_render_tree_empty() {
         let config = Config::default();
-        let info = Info::with_config(&config);
+        let info = Info::with_config(&config, false).0;
         let modules = vec![];
 
         let nodes = prepare_render_tree(&info, &modules, &config);
@@ -180,7 +190,7 @@ mod tests {
     #[test]
     fn test_security_malicious_module_injection() {
         let config = Config::default();
-        let info = Info::with_config(&config);
+        let info = Info::with_config(&config, false).0;
 
         // Cybersec: test malicious module injection
         let malicious_modules = vec![

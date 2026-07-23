@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand};
     version,
     about,
     long_about = None,
-    after_help = "Examples:\n  xfetch\n  xfetch --config ~/.config/xfetch/config.jsonc\n  xfetch --gen-config\n  xfetch plugin install animate-logo\n  xfetch plugin list\n  xfetch plugin remove animate-logo"
+    after_help = "Examples:\n  xfetch\n  xfetch --config ~/.config/xfetch/config.jsonc\n  xfetch --gen-config\n  xfetch --clean-cache\n  xfetch plugin install animate-logo\n  xfetch plugin list\n  xfetch plugin remove animate-logo\n  xfetch theme list\n  xfetch theme set dracula\n  xfetch theme remove dracula\n  xfetch theme export my-theme"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -17,6 +17,12 @@ pub struct Cli {
 
     #[arg(long, global = true)]
     pub gen_config: bool,
+
+    #[arg(long, global = true)]
+    pub clean_cache: bool,
+
+    #[arg(long, global = true)]
+    pub benchmark: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -24,6 +30,10 @@ pub enum Commands {
     Plugin {
         #[command(subcommand)]
         action: PluginCommands,
+    },
+    Theme {
+        #[command(subcommand)]
+        action: ThemeCommands,
     },
 }
 
@@ -38,4 +48,12 @@ pub enum PluginCommands {
     Remove {
         name: String,
     },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ThemeCommands {
+    List,
+    Set { name: String },
+    Remove { name: String },
+    Export { name: String },
 }
