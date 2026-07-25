@@ -1,5 +1,39 @@
 # Changelog
 
+## 2026-07-25 — v0.3.0
+
+### Responsive Image & Text
+
+-  Added `logo_width` / `logo_height` fields to Config for explicit image sizing in columns
+-  Auto-responsive image width: when `logo_width` is unset, calculates from terminal size (28% width, clamped 15-40 cols)
+-  Responsive text truncation: content lines exceeding available width (terminal - logo - gap) are truncated with `...`, preserving ANSI codes
+
+### Extension API (separate from plugin system)
+
+-  Created `api/crates/extension-api/` — standalone crate for extension protocol types (`xfetch-extension-api`)
+-  Added `ConfigProviderRequest` / `ConfigProviderResponse` with its own `ExtensionKind` enum and `KIND_CONFIG_PROVIDER` constant
+-  Added `ConfigProviderConfig` struct + `config_providers[]` field to `Config` — runs after theme merge, in declaration order
+-  Created `xfetch/src/extensions/` module with `runner.rs` — invokes extension binaries via stdin/stdout JSON protocol, completely decoupled from `plugins/`
+-  Extension binaries searched in `~/.config/xfetch/extensions/` (fallback to `plugins/`), prefixed `xfetch-extension-*`
+-  Renamed `ConfigProviderConfig.plugin` → `ConfigProviderConfig.extension` to match the concept
+-  Switched `xfetch-extension-api` dependency from local path to git remote (`github.com/xfetch-cli/api`)
+-  Added `xfetch extension install/list/remove` commands (mirrors plugin commands, installs to `~/.config/xfetch/extensions/`)
+
+### Extensions Built
+
+-  Created sample extension `layout-override` that rewrites `layout` / `modules` at load time
+-  Created `config-roulette` extension — reads a JSON list of config file paths, picks one (random or daily strategy), loads the full config file, and returns it; supports 300+ routes from the test suite
+-  Created `extensions/` repo skeleton with workspace, .gitignore, and README matching plugins repo style
+-  Each extension includes a detailed README with usage, args table, and protocol reference
+
+### Logo & Config Packs
+
+-  Created `tests/` directory with 150 new configs (100 with logos, 50 without) at `~/.config/xfetch/tests/`
+-  Replaced all 63 ASCII logos with high-quality art from asciiart.eu (artists: Joan G. Stark, Felix Lee, Shanaka Dias, Hayley Jane Wakenshaw, etc.)
+-  Generated `test-commands.md` with 300 test commands for all configs
+-  Created 12 city-themed color themes (x, madrid, lahabana, miami, paris, tokio, oslo, helsinki, berlin, london, praha, bogota)
+-  Installed all 10 plugins (animate-logo, display-resolution, docker, github-stats, music-player, theme-detection, theme-manager, timezone, user-info, weather)
+
 ## 2026-07-24 — v0.2.0
 
 ### Theme System (Breaking Change)
