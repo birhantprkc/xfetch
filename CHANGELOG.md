@@ -1,5 +1,108 @@
 # Changelog
 
+## 2026-08-18 — v0.5.0
+
+### No More `configs/` Folder
+
+- The `configs/` directory was removed from the repo: the `--gen-config` template is now embedded in the binary (`GEN_CONFIG_TEMPLATE` const), and the installers (`install.sh` / `install.ps1`) generate the first config by running `xfetch --gen-config` instead of copying a file.
+- `--gen-config` now ships the **`section`** layout by default (the same default the installers used to copy: grouped Hardware/Software/Session modules); `--layout pacman` and any other layout remain available via the flag. Offline installs fall back to the template without logo, and existing configs are never overwritten.
+- `docs/INSTALLATION.md` manual setup example updated to `xfetch --gen-config`.
+
+### Layout Flag in `--gen-config`
+
+- New `--layout <name>` flag: generates the config with a different layout, e.g. `xfetch --gen-config --layout pacman` or `--layout tree`. Accepts any known layout (`default`, `side-block`, `tree`, `section`, `section-box`, `custom-x`, `compact`, `minimal`, `pacman`, `box`, `line`, `dots`, `bottom_line`, `horizontal`, `bottom`); the template ships as `section` (see the `configs/` removal entry above), so that remains the default.
+- Unknown layout name: warns and keeps `pacman`. Composable with `--logo` (`--gen-config --layout tree --logo arch`).
+- `LAYOUT_NAMES`/`is_known_layout()` exported from `ui/layout.rs` as the single source of truth for valid names.
+- 78 tests, fmt and clippy `-D warnings` clean.
+
+### Version Bump
+
+- Crate version bumped from 0.4.0 to **0.5.0**: all 2026-08-18 entries below are part of this release (performance rounds, WSL presentation, package managers, parallel plugins, distro logos and the `--logo` flag).
+
+### Logo Override in `--gen-config`
+
+- New `--logo <id>` flag: embeds a specific logo in the generated config, overriding the detected OS/distro — e.g. `xfetch --gen-config --logo arch` on Ubuntu, or `--logo windows-11` / `--logo macos-ventura` for other OSes. Resolved on its own against the catalog (ids and aliases, case-insensitive).
+- Unknown `--logo` id: warns and falls back to the generic logo of the current category, saved as `default.txt`; total failure (no network, catalog error) warns and writes the template unchanged. Automatic detection keeps its silent fallback.
+- 78 tests, fmt and clippy `-D warnings` clean.
+
+## 2026-08-18 — v0.5.0
+
+### Distro Logos in `--gen-config`
+
+- `--gen-config` now fetches the ASCII logo of the detected OS/distro from the new **xfetch-cli/logos** catalog (`raw.githubusercontent.com/xfetch-cli/logos/main`): index → resolution → raw art file, via `curl` with a 10 s timeout, validated (64 KB cap, no NUL bytes, sane line width).
+- Detection: Linux reads `ID` + `ID_LIKE` from `/etc/os-release` (resolution: exact ID → each ID_LIKE token in order → category default, all case-insensitive against ids and aliases); macOS and Windows resolve their base id plus a version-specific logo when `os_version()` maps (`macos-ventura`, `windows-11`, ...).
+- The fetched art is persisted to `<config_dir>/xfetch/logos/<distro-id>.txt` and the generated config gets `"ascii": "<path>"` (the existing config field for ASCII art files). `XFETCH_LOGOS_URL` overrides the base URL (testing forks/mirrors).
+- **Fallback**: any failure (no network, catalog error, invalid art, missing file) writes the template unchanged — the previous behavior, including no runtime/daemon changes. Verified end-to-end: Ubuntu art renders in the pacman layout; unreachable URL falls back with no `ascii` field.
+- Tests: +6 (os-release parsing, entry resolution by id/alias/ID_LIKE/case, art validation) — 78 total, all passing; fmt and clippy `-D warnings` clean.
+
+## 2026-08-18 — v0.5.0
+
+### Smarter sysinfo Initialization (Probe Slimming)
+
+- `System::new_all() + refresh_all()` replaced with `System::new_with_specifics(RefreshKind::nothing().with_cpu(CpuRefreshKind::everything()).with_memory(MemoryRefreshKind::everything()))`: the old call also walked every process — which xfetch never reads — measured ~40× slower on WSL (43 ms vs 1 ms). `os`, `kernel`, `hostname` and `uptime` are sysinfo statics and no longer require a `System` instance at all; only `cpu`, `memory` and `swap` create one.
+- The three sysinfo containers (`System`, `Disks`, `Networks`) are now initialized concurrently in a `thread::scope` instead of serially.
+- Benchmark label updated to reflect the parallel section contents (`Parallel (probes)`).
+- Measured on WSL: cold full fetch 0.054 s → **0.008 s** total (originally 8.6 s). Values unchanged: `716 (dpkg)`, CPU/memory/swap/disk, `2026-08-18 10:18:27`, `Ubuntu 24.04 x86_64 (WSL)`.
+- 72 tests, fmt and clippy `-D warnings` clean.
+
+## 2026-08-18 — v0.5.0
+
+### WSL Presentation, More Package Managers, Parallel Plugins
+
+- **WSL-aware OS display** — new `src/info/platform/wsl/` folder (compiled on Linux, dispatched at runtime since WSL *is* Linux). `is_wsl()` reads `/proc/version` (kernel announces "microsoft", works for every distro inside WSL: Ubuntu, Debian, Arch, openSUSE, Alpine WSL, ...); `decorate_os()` applies the configured style. New config key `os_wsl_style`: `off` ("Ubuntu 24.04 x86_64"), `minimal` (default: "... (WSL)"), `full` ("... (WSL 2, WSLg)" — WSL version from the kernel string, WSLg from `/mnt/wslg` or `WAYLAND_DISPLAY`). Unknown config keys are ignored, so existing configs are unaffected.
+- **Void and Gentoo package support** — new db-reads: Void (`/var/db/xbps/` per-package dirs, dot-prefixed partial installs excluded) and Gentoo (`/var/db/pkg/<category>/<package>/`, two-level count, matches `qlist -I`). Void also gets an `xbps-query -l` command fallback. Coverage now spans Debian/Ubuntu, Arch, Alpine, Fedora/RHEL/openSUSE (rpm command, binary db), Flatpak, Snap, Nix, Void and Gentoo.
+- **Plugins run in parallel — API untouched** — `load_plugin_info()` spawns one thread per plugin (each plugin is an independent subprocess, so no shared state) and the whole load moved into the main parallel section of `Info::new`. Verified: two 1 s plugins complete in ~1.2 s instead of ~2.1 s serial. The `xfetch_plugin_api` JSON protocol is unchanged; no existing plugin needs any modification.
+- Tests: +4 WSL (`is_wsl` consistency, `decorate_os` off/no-op, style fallback), 72 total, all passing; fmt and clippy `-D warnings` clean.
+
+## 2026-08-18 — v0.5.0
+
+### Performance Round 2: Database Reads, PATH Pre-check, Full Parallelism
+
+- **Package counts from distro databases instead of subprocesses** (`linux/packages.rs`): `dpkg` (`/var/lib/dpkg/status` `Package:` lines), `pacman` (`/var/lib/pacman/local/` dirs), `apk` (`/var/lib/apk/db/installed` `P:` lines) and `flatpak` (system `/var/lib/flatpak/app/` + user `~/.local/share/flatpak/app/` dirs) are read directly — world-readable files that mirror exactly what `dpkg --get-selections`, `pacman -Qq`, `apk info` and `flatpak list --app` report, in microseconds instead of a spawn. The commands remain as automatic fallback when a database is unreadable or missing; `rpm`, `snap` and `nix-env` stay command-based (binary databases / profile symlinks). Breakdown order and format are unchanged.
+- **PATH pre-check before spawning any probe** (`shared/commands.rs`): `run_cmd_with_timeout()` now verifies the binary is reachable through PATH before spawning, skipping the execvp search. WSL Windows mounts (`/mnt/c`, `/mnt/d`, ...) are excluded from the search: stat()ing those 9p/drvfs mounts makes a failed spawn cost hundreds of milliseconds. Semantics match execvp for all remaining PATH entries, so no probe that would succeed is ever skipped; applies to every command probe (GPU, battery, datetime, packages) on Unix.
+- **`battery` and `datetime` moved into the parallel section** (`info/mod.rs`): previously fetched serially after the GPU/packages/IP block, each with its own 10 s timeout; now they join the parallel scope (a real win on macOS `pmset`/`system_profiler` and Windows `wmic`/`powershell`, which are slow).
+- **Public IP hosts queried in parallel** (`system.rs`): `ifconfig.me`, `api.ipify.org` and `icanhazip.com` used to run sequentially (up to 9 s offline at 3 s per host); now all three fire at once and the first success wins.
+- Measured on WSL (snapd off): cold full fetch 0.26 s → **0.047 s**; cold `packages` module 0.23 s → **0.002 s** (originally 8.7 s). Output is identical: `716 (dpkg)`, `1 hour, 44 mins`, `2026-08-18 09:47:28`, etc.
+- Tests: +5 (`is_windows_mount`, `binary_reachable`, `count_lines_with_prefix`, `count_dirs`, `db_counts_preserve_check_order`) — 68 total, all passing; fmt and clippy `-D warnings` clean.
+
+## 2026-08-18 — v0.5.0
+
+### Package Counter Speedup
+
+- Fixed `run_package_checks()` running every package-manager probe in series: the per-check `handle.join()` inside `filter_map` waited for each command before spawning the next, so cold package counts took the sum of all probes instead of the slowest one. All probes are now spawned first and joined after, cutting cold time on multi-manager systems dramatically.
+- Removed the duplicated package scan: `get_packages_info()` (which re-ran the whole breakdown internally) plus a second `get_packages_breakdown()` call in `src/info/mod.rs` meant every cold fetch ran all package checks twice. The breakdown now runs once and the display string is derived from it via `packages_info_from_breakdown()`. The redundant `get_packages_info()` was deleted.
+- Snap socket pre-check: on systems where `snap` is installed but the snapd daemon is not running (e.g. WSL), `snap list` blocks forever on the snapd socket and costs the full 3 s timeout per scan. `get_packages_breakdown()` on Linux now skips the `snap` probe entirely when neither `/run/snapd.socket` nor `/run/snapd-snap.socket` exists — an instant, subprocess-free check; the count would be zero anyway. Snap still counts where snapd actually runs.
+- Windows `run_package_checks_with_adjustment()` got the same spawn-all-then-join fix.
+- Measured on a WSL system with snapd off: cold `packages` module 8.7 s → 0.23 s (~38× faster); the earlier 3 s `snap` timeout is gone and the parallel section no longer runs probes twice.
+- No config, layout, theme, or daemon behavior was changed. Tests updated: `test_get_packages_not_empty` builds the string from the breakdown, new `test_snapd_socket_precheck_skips_snap` guards the socket probe — 63 tests, all passing.
+
+## 2026-08-17 — v0.4.0
+
+### External Command Timeouts (hang fix)
+
+- Fixed xfetch hanging before rendering on systems where `snap` is installed but the snapd daemon is not running (e.g., WSL): `snap list` blocks forever on the snapd socket, and `count_packages_linux()` waited on that thread inside `thread::scope`, so the whole fetch never printed.
+- Added `run_cmd_with_timeout()` in `src/info/platform/shared/commands.rs`: runs a command with piped stdout/stderr and a deadline, kills the process when it expires and returns `None` instead of blocking forever; stdin is closed (`Stdio::null`) so commands can no longer wait on terminal input.
+- Timeouts are per command, carried as a `(&str, &[&str], Duration)` tuple (`PackageCheck`), so each platform tunes its own commands independently: `snap` 3 s (the pathological case), package managers (`pacman`, `dpkg`, `rpm`, `flatpak`, `apk`, `nix-env`, `brew`, `scoop`, `choco`) 10 s, hardware probes (`lspci`, `pmset`, `wmic`, `powershell`) 10 s, `system_profiler` 30 s (macOS, notoriously slow), `date` 10 s.
+- Windows: the `wmic` → `powershell` GPU/battery fallback now also triggers when `wmic` times out (previously only on spawn errors).
+- Added cross-platform test `test_cmd_timeout_kills_hanging_command` (`sleep` on Unix, `timeout` on Windows) proving a hanging command is killed within the deadline — 62 tests total, all passing.
+- No config, layout, theme, plugin, extension, or daemon behavior was changed.
+
+### Platform Separation (`src/info/platform/`)
+
+- New per-OS folder structure: `src/info/platform/{linux,macos,windows}/` plus `shared/` for platform-agnostic machinery — the first step toward per-platform code that is only compiled on its own OS.
+- Contract: every OS folder exposes the same functions (`get_gpu_info()`, `get_battery_info()`, `get_datetime_info()`, `get_packages_breakdown()`), and `platform/mod.rs` re-exports the active one via `#[cfg(target_os)]`; the rest of the code calls `info::*` and never sees the OS.
+- Moved GPU detection (lspci / system_profiler / wmic+powershell), battery (sysfs / pmset / wmic), datetime (date / powershell) and the per-OS package-manager tables into their platform folders.
+- `shared/` keeps only the mechanism: `commands.rs` (command runner with timeout) and `packages.rs` (probe runner, `PackageCheck` type, per-command timeouts, `get_packages_info`).
+- `hardware.rs` now holds only cross-platform sysinfo probes (cpu, memory, swap, disk); `software.rs` only env-var detection (shell, terminal, desktop, user); `system.rs` only sysinfo/network probes (os, kernel, hostname, uptime, IPs).
+- The unused `Components` battery probe was dropped (the battery value no longer depends on it).
+- Tests moved with the code: per-OS detector tests (`test_linux/macos/windows_detectors_safe`), per-OS datetime tests, package-machinery tests in `shared/packages.rs`, and command-runner tests in `shared/commands.rs`.
+
+### Local CI
+
+- Added `scripts/ci.sh` (Linux/macOS) and `scripts/ci.ps1` (Windows): run `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` locally.
+- GitHub Actions workflows (`rust-tests.yml`, `roadmap-sync.yml`) now trigger only manually (`workflow_dispatch`) — no runs on push.
+- Fixed pre-existing rustfmt drift (`cargo fmt --all`) and clippy warnings in `ui/logo.rs`, `ui/nodes.rs`, `ui/renders.rs`, `ui/daemon.rs` so the local CI passes cleanly.
+
 ## 2026-08-15 — v0.4.0
 
 ### XDG_CONFIG_HOME Support (macOS fix)

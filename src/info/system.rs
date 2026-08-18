@@ -1,13 +1,10 @@
 use std::io::{BufReader, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::process::Command;
+use std::thread;
 use std::time::Duration;
 use sysinfo::{Networks, System};
 
-const POWERSHELL_CMD: &str = "powershell";
-const DATE_CMD: &str = "date";
-const DATE_FMT_WIN: &str = "Get-Date -Format 'yyyy-MM-dd HH:mm:ss'";
-const DATE_FMT_UNIX: &str = "+%Y-%m-%d %H:%M:%S";
+const PUBLIC_IP_HOSTS: [&str; 3] = ["ifconfig.me", "api.ipify.org", "icanhazip.com"];
 
 pub fn get_os_info() -> String {
     let name = System::name().unwrap_or_else(super::unknown);
@@ -35,23 +32,6 @@ pub fn get_uptime_info() -> String {
     let hour_label = if hours == 1 { "hour" } else { "hours" };
     let min_label = if mins == 1 { "min" } else { "mins" };
     format!("{} {}, {} {}", hours, hour_label, mins, min_label)
-}
-
-pub fn get_datetime_info() -> String {
-    if cfg!(target_os = "windows") {
-        if let Ok(output) = Command::new(POWERSHELL_CMD)
-            .arg("-Command")
-            .arg(DATE_FMT_WIN)
-            .output()
-        {
-            return String::from_utf8_lossy(&output.stdout).trim().to_string();
-        }
-    } else {
-        if let Ok(output) = Command::new(DATE_CMD).arg(DATE_FMT_UNIX).output() {
-            return String::from_utf8_lossy(&output.stdout).trim().to_string();
-        }
-    }
-    super::unknown()
 }
 
 pub fn get_local_ip_info(networks: &Networks) -> String {
@@ -107,12 +87,16 @@ pub fn get_public_ip_info(enabled: bool) -> String {
     if !enabled {
         return "N/A".to_string();
     }
-    for host in &["ifconfig.me", "api.ipify.org", "icanhazip.com"] {
-        if let Some(ip) = fetch_public_ip_from(host) {
-            return ip;
-        }
-    }
-    "N/A".to_string()
+    // All hosts in parallel: offline systems used to pay 3 s per host
+    // sequentially (up to 9 s), now the timeout applies once.
+    let ip = thread::scope(|s| {
+        let handles: Vec<_> = PUBLIC_IP_HOSTS
+            .iter()
+            .map(|host| s.spawn(move || fetch_public_ip_from(host)))
+            .collect();
+        handles.into_iter().find_map(|h| h.join().ok().flatten())
+    });
+    ip.unwrap_or_else(|| "N/A".to_string())
 }
 
 fn is_link_local(ipv6: &std::net::Ipv6Addr) -> bool {
@@ -179,16 +163,6 @@ mod tests {
             uptime.contains("hour") || uptime.contains("min"),
             "uptime '{}' should contain hour or min",
             uptime
-        );
-    }
-
-    #[test]
-    fn test_get_datetime_info() {
-        let dt = get_datetime_info();
-        assert!(
-            dt.len() >= 10,
-            "datetime should be at least YYYY-MM-DD: got '{}'",
-            dt
         );
     }
 }

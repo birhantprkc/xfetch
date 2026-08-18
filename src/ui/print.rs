@@ -1,13 +1,18 @@
 use crate::config::Config;
 use crate::plugins::AnimationFrame;
 use console::strip_ansi_codes;
+#[cfg(unix)]
 use crossterm::Command;
-use crossterm::cursor::{Hide, MoveTo, MoveToColumn, MoveUp, RestorePosition, SavePosition, Show};
+use crossterm::cursor::{Hide, MoveToColumn, MoveUp, Show};
+#[cfg(unix)]
+use crossterm::cursor::{MoveTo, RestorePosition, SavePosition};
 use crossterm::execute;
 use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
 use crossterm::terminal::size;
 use crossterm::terminal::{Clear, ClearType};
-use std::io::{Stdout, Write, stdout};
+#[cfg(unix)]
+use std::io::Write;
+use std::io::{Stdout, stdout};
 use std::time::{Duration, Instant};
 
 pub(crate) const LOGO_INFO_GAP: &str = "  ";
@@ -140,7 +145,11 @@ pub fn print_output(
     }
 
     let text_height = content_lines.len();
-    let logo_height = if image_printed { image_height } else { ascii_lines.len() };
+    let logo_height = if image_printed {
+        image_height
+    } else {
+        ascii_lines.len()
+    };
     let max_lines = std::cmp::max(logo_height, text_height);
 
     for i in 0..max_lines {
@@ -216,11 +225,7 @@ pub fn render_frame(
     force_plain_logo: bool,
 ) {
     for i in 0..geometry.max_lines {
-        let ascii_line = frame
-            .lines
-            .get(i)
-            .map(|line| line.as_str())
-            .unwrap_or("");
+        let ascii_line = frame.lines.get(i).map(|line| line.as_str()).unwrap_or("");
         print_logo_line(
             out,
             ascii_line,
@@ -274,7 +279,14 @@ pub(crate) fn print_animated_output(
             let _ = execute!(out, Clear(ClearType::FromCursorDown));
         }
 
-        render_frame(&mut out, frame, &geometry, content_lines, config, force_plain_logo);
+        render_frame(
+            &mut out,
+            frame,
+            &geometry,
+            content_lines,
+            config,
+            force_plain_logo,
+        );
 
         let delay = std::cmp::max(MIN_FRAME_DELAY_MS, frame.delay_ms);
         std::thread::sleep(Duration::from_millis(delay));
@@ -296,6 +308,7 @@ pub(crate) fn print_animated_output(
     let _ = execute!(out, Show);
 }
 
+#[cfg(unix)]
 pub struct DaemonState {
     pub geometry: FrameGeometry,
     pub block_height: u16,
@@ -303,6 +316,7 @@ pub struct DaemonState {
     pub scale: f64,
 }
 
+#[cfg(unix)]
 pub fn daemon_prepare(
     frames: &[AnimationFrame],
     ascii_width: usize,
@@ -330,10 +344,12 @@ pub fn daemon_prepare(
     }
 }
 
+#[cfg(unix)]
 pub fn daemon_move_to_prompt(out: &mut Stdout, state: &DaemonState) {
     let _ = execute!(out, MoveTo(0, state.block_height));
 }
 
+#[cfg(unix)]
 fn append_logo_line(
     buf: &mut String,
     ascii_line: &str,
@@ -355,6 +371,7 @@ fn append_logo_line(
     }
 }
 
+#[cfg(unix)]
 fn append_daemon_row(
     buf: &mut String,
     ascii_line: &str,
@@ -363,7 +380,13 @@ fn append_daemon_row(
     config: &Config,
     force_plain_logo: bool,
 ) {
-    append_logo_line(buf, ascii_line, geometry.max_logo_width, config, force_plain_logo);
+    append_logo_line(
+        buf,
+        ascii_line,
+        geometry.max_logo_width,
+        config,
+        force_plain_logo,
+    );
     let _ = Print(LOGO_INFO_GAP).write_ansi(buf);
     if let Some(line) = content_line {
         let line = truncate_line(line, geometry.available_content_width);
@@ -379,6 +402,7 @@ fn append_daemon_row(
 /// scroll region (the shell may reset it), draws each pinned row with absolute
 /// positioning, and finally restores the user's cursor — leaving it untouched
 /// so typed input is never yanked away.
+#[cfg(unix)]
 pub fn build_daemon_frame_buffer(
     frame: &AnimationFrame,
     state: &DaemonState,
@@ -414,6 +438,7 @@ pub fn build_daemon_frame_buffer(
     buf
 }
 
+#[cfg(unix)]
 fn scale_index(row: u16, source_len: usize, state: &DaemonState) -> usize {
     if source_len == 0 {
         return usize::MAX;
@@ -458,7 +483,8 @@ pub fn print_daemon_output(
         }
 
         let frame = &frames[frame_index];
-        let buffer = build_daemon_frame_buffer(frame, &state, content_lines, config, force_plain_logo);
+        let buffer =
+            build_daemon_frame_buffer(frame, &state, content_lines, config, force_plain_logo);
         let _ = out.write_all(buffer.as_bytes());
         let _ = out.flush();
 
@@ -469,6 +495,7 @@ pub fn print_daemon_output(
     }
 }
 
+#[cfg(unix)]
 pub fn restore_terminal() {
     let _ = execute!(stdout(), Show);
     let _ = execute!(stdout(), ResetScrollRegion);
@@ -516,18 +543,32 @@ fn visible_width(value: &str) -> usize {
     console::measure_text_width(&stripped)
 }
 
+#[cfg(unix)]
 pub struct SetScrollRegion(pub u16, pub u16);
 
+#[cfg(unix)]
 impl crossterm::Command for SetScrollRegion {
     fn write_ansi(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
         write!(f, "\x1b[{};{}r", self.0, self.1)
     }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
+#[cfg(unix)]
 pub struct ResetScrollRegion;
 
+#[cfg(unix)]
 impl crossterm::Command for ResetScrollRegion {
     fn write_ansi(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
         f.write_str("\x1b[r")
+    }
+
+    #[cfg(windows)]
+    fn execute_winapi(&self) -> std::io::Result<()> {
+        Ok(())
     }
 }
