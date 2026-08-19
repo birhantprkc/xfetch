@@ -6,7 +6,13 @@
 pub mod battery;
 pub mod datetime;
 pub mod gpu;
+pub mod live;
+pub mod network;
 pub mod packages;
+pub mod process;
+pub mod shell;
+pub mod software;
+pub mod version;
 
 pub use battery::get_battery_info;
 pub use datetime::get_datetime_info;

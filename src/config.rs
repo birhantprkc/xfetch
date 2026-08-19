@@ -33,6 +33,11 @@ pub struct Config {
     pub footer_text: Option<String>,
     pub palette_style: Option<String>,
     pub logo_animation: Option<LogoAnimationConfig>,
+    /// Intro effects applied to the content lines when the fetch starts
+    /// (opt-in: no-op when the effect binary is not installed). Accepts a
+    /// single effect or a list — effects play in sequence. Installed as
+    /// `xfetch-effect-<plugin>` under the config dir or PATH.
+    pub effects: Option<EffectConfigList>,
     pub info_plugins: Vec<InfoPluginConfig>,
     pub config_providers: Vec<ConfigProviderConfig>,
     pub disable_ip_fetching: Option<bool>,
@@ -44,12 +49,32 @@ pub struct Config {
     pub logo_gap: Option<u32>,
     pub logo_kitty: Option<bool>,
     pub logo_color: Option<String>,
+    /// Per-row logo colors: row `i` uses `logo_colors[i % len]`; takes
+    /// precedence over `logo_color`.
+    pub logo_colors: Option<Vec<String>>,
     pub logo_padding: Option<usize>,
     pub logo_type: Option<String>,
     pub show_keys: bool,
     pub key_width: Option<usize>,
     pub daemon: bool,
     pub daemon_min_rows: Option<u32>,
+    /// Live stats daemon: pins the fetch block at the top of the terminal and
+    /// re-probes a lightweight module subset every `daemon_live_refresh`
+    /// seconds. Sibling of `daemon` (the animated-logo daemon); the existing
+    /// daemon is untouched. Disable from the terminal with `--no-daemon-live`,
+    /// stop it with `--daemon-live-stop`.
+    pub daemon_live: bool,
+    /// Seconds between live refreshes (0 disables the interval floor; the
+    /// platform policy supplies the default).
+    pub daemon_live_refresh: Option<u64>,
+    /// Modules shown by the live daemon. Defaults to the platform's live set
+    /// (`platform/<os>/live.rs`).
+    pub daemon_live_modules: Option<Vec<String>>,
+    /// Hot reload for the live daemon: watch the config (and the active theme)
+    /// and re-apply changes — modules, colors, layout, logo, refresh cadence —
+    /// without restarting. Force-enable from the terminal with
+    /// `--daemon-live-reload`.
+    pub daemon_live_reload: bool,
     pub custom_x: Option<CustomX>,
 }
 
@@ -70,6 +95,10 @@ pub struct LogoAnimationConfig {
     pub loop_enabled: Option<bool>,
     pub style: Option<String>,
     pub frames_path: Option<FramePaths>,
+    /// Safety net in seconds: the core kills the plugin process if it runs
+    /// longer. The plugin's own `with_timeout` budget is the primary control;
+    /// this caps even uncooperative plugins.
+    pub timeout_secs: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -77,6 +106,46 @@ pub struct LogoAnimationConfig {
 pub struct InfoPluginConfig {
     pub plugin: String,
     pub args: Option<Value>,
+    /// Safety net in seconds: the core kills the plugin process if it runs
+    /// longer. The plugin's own `with_timeout` budget is the primary control;
+    /// this caps even uncooperative plugins.
+    pub timeout_secs: Option<u64>,
+}
+
+/// Intro effect applied to the content lines (`"effects"` in config). The
+/// effect plugin receives the rendered lines and returns per-frame variants
+/// (`xfetch-effect-api`); opt-in — nothing happens when the binary is missing.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
+pub struct EffectConfig {
+    pub plugin: Option<String>,
+    pub style: Option<String>,
+    pub duration_ms: Option<u64>,
+    pub fps: Option<u64>,
+    pub args: Option<Value>,
+    /// Safety net in seconds: the core kills the effect process if it runs
+    /// longer. The effect's own `with_timeout` budget is the primary control.
+    pub timeout_secs: Option<u64>,
+}
+
+/// The `"effects"` config value: a single effect or a list of effects played
+/// in sequence. Kept untagged so existing single-object configs keep working.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum EffectConfigList {
+    Single(EffectConfig),
+    Multiple(Vec<EffectConfig>),
+}
+
+impl Config {
+    /// The configured effects in play order (empty when none configured).
+    pub fn effects_list(&self) -> Vec<&EffectConfig> {
+        match &self.effects {
+            None => Vec::new(),
+            Some(EffectConfigList::Single(cfg)) => vec![cfg],
+            Some(EffectConfigList::Multiple(list)) => list.iter().collect(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -84,6 +153,10 @@ pub struct InfoPluginConfig {
 pub struct ConfigProviderConfig {
     pub extension: String,
     pub args: Option<Value>,
+    /// Safety net in seconds: the core kills the extension process if it
+    /// runs longer. The extension's own `with_timeout` budget is the primary
+    /// control; this caps even uncooperative extensions.
+    pub timeout_secs: Option<u64>,
 }
 
 impl Default for Config {
@@ -134,6 +207,7 @@ impl Default for Config {
             footer_text: None,
             palette_style: None,
             logo_animation: None,
+            effects: None,
             info_plugins: Vec::new(),
             config_providers: Vec::new(),
             disable_ip_fetching: None,
@@ -144,23 +218,32 @@ impl Default for Config {
             logo_gap: None,
             logo_kitty: None,
             logo_color: None,
+            logo_colors: None,
             logo_padding: None,
             logo_type: None,
             show_keys: false,
             key_width: None,
             daemon: false,
             daemon_min_rows: None,
+            daemon_live: false,
+            daemon_live_refresh: None,
+            daemon_live_modules: None,
+            daemon_live_reload: false,
             custom_x: None,
         }
     }
 }
 
 fn parse_jsonc_file(path: &Path) -> Option<Value> {
-    let file = fs::File::open(path).ok()?;
-    let mut stripped = StripComments::new(file);
-    let mut content = String::new();
-    stripped.read_to_string(&mut content).ok()?;
-    serde_json::from_str(&content).ok()
+    let content = fs::read_to_string(path).ok()?;
+    parse_jsonc_str(&content)
+}
+
+fn parse_jsonc_str(content: &str) -> Option<Value> {
+    let mut stripped = StripComments::new(content.as_bytes());
+    let mut clean = String::new();
+    stripped.read_to_string(&mut clean).ok()?;
+    serde_json::from_str(&clean).ok()
 }
 
 fn deep_merge(base: &mut Value, overlay: &Value) {
@@ -263,9 +346,7 @@ pub fn load_config(path: Option<String>) -> Config {
     if !config_providers.is_empty() {
         let mut current = serde_json::to_value(&config).unwrap_or_default();
         for provider in &config_providers {
-            if let Ok(modified) =
-                run_config_provider(&provider.extension, provider.args.clone(), &current)
-            {
+            if let Ok(modified) = run_config_provider(provider, &current) {
                 current = modified;
             }
         }
@@ -350,4 +431,41 @@ pub fn generate_config(
     fs::write(&config_path, out)?;
 
     Ok(config_path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_timeout_secs_parses_from_jsonc() {
+        let jsonc = r#"{
+            // plugins declare their own budget via with_timeout; the core
+            // safety net is opt-in per plugin:
+            "info_plugins": [
+                { "plugin": "weather", "timeout_secs": 30 }
+            ],
+            "config_providers": [
+                { "extension": "layout-override", "timeout_secs": 5 }
+            ],
+            "logo_animation": {
+                "plugin": "animate-logo",
+                "timeout_secs": 10
+            }
+        }"#;
+        let parsed = parse_jsonc_str(jsonc).expect("parse jsonc");
+        let config: Config = serde_json::from_value(parsed).expect("deserialize config");
+        assert_eq!(config.info_plugins[0].timeout_secs, Some(30));
+        assert_eq!(config.config_providers[0].timeout_secs, Some(5));
+        let anim = config.logo_animation.as_ref().expect("logo animation");
+        assert_eq!(anim.timeout_secs, Some(10));
+    }
+
+    #[test]
+    fn test_timeout_secs_defaults_to_none() {
+        let jsonc = r#"{ "info_plugins": [ { "plugin": "weather" } ] }"#;
+        let parsed = parse_jsonc_str(jsonc).expect("parse jsonc");
+        let config: Config = serde_json::from_value(parsed).expect("deserialize config");
+        assert_eq!(config.info_plugins[0].timeout_secs, None);
+    }
 }

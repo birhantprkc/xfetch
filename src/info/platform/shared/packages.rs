@@ -1,42 +1,132 @@
 use super::commands::run_cmd_with_timeout;
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 use std::thread;
 use std::time::Duration;
 
-/// A package-manager probe: command name, arguments and its own timeout.
+/// A package-manager probe: executable, arguments, its own timeout and the
+/// display label.
 ///
-/// Timeouts are per command so each platform tunes its probes independently
-/// (e.g. `snap` gets a short timeout because it hangs forever when the snapd
-/// daemon is not running).
-pub type PackageCheck<'a> = (&'a str, &'a [&'a str], Duration);
+/// `label` is what appears in the package count and can differ from `binary`,
+/// so one tool can report two sets (e.g. Arch's AUR count runs `pacman -Qm`
+/// but is labeled `aur`). Timeouts are per command so each platform tunes its
+/// probes independently (e.g. `snap` gets a short timeout because it hangs
+/// forever when the snapd daemon is not running). Used by the Linux runner;
+/// macOS and Windows keep their own.
+#[cfg(target_os = "linux")]
+#[derive(Clone)]
+pub struct PackageCheck<'a> {
+    pub binary: &'a str,
+    pub args: &'a [&'a str],
+    pub timeout: Duration,
+    pub label: &'a str,
+}
 
 pub const PACKAGE_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 #[cfg(target_os = "linux")]
 pub const SNAP_CHECK_TIMEOUT: Duration = Duration::from_secs(3);
 
-pub fn run_package_check_with_timeout(
-    cmd: &str,
-    args: &[&str],
-    timeout: Duration,
-) -> Option<usize> {
+/// Runs a package probe and returns its stdout when the command succeeds.
+/// Per-OS counters parse this raw output (e.g. choco's summary line,
+/// winget's table header, brew's notices) instead of naively counting lines.
+pub fn run_package_check_stdout(cmd: &str, args: &[&str], timeout: Duration) -> Option<String> {
     run_cmd_with_timeout(cmd, args, timeout)
         .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).lines().count())
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+}
+
+#[cfg(target_os = "linux")]
+pub fn run_package_check_with_timeout(check: &PackageCheck<'_>) -> Option<usize> {
+    run_package_check_stdout(check.binary, check.args, check.timeout).map(|out| out.lines().count())
+}
+
+/// Parsers for package-manager output. They are pure text logic so they live
+/// here (testable on any platform via `cfg(test)`); each OS folder decides
+/// which commands to run and maps them to the matching parser.
+///
+/// `scoop list` prints a header block ("Installed apps:", "Name Version ...",
+/// a dashes row) before the actual apps — counts "name version ..." rows.
+#[cfg(any(target_os = "windows", test))]
+pub fn count_scoop_output(stdout: &str) -> usize {
+    stdout
+        .lines()
+        .filter(|line| {
+            let tokens: Vec<&str> = line.split_whitespace().collect();
+            tokens.len() >= 2
+                && tokens[0] != "Name"
+                && tokens[0] != "Installed"
+                && !tokens[0].chars().all(|c| c == '-')
+        })
+        .count()
+}
+
+/// Localized "no results" messages winget prints instead of a table when the
+/// list is empty (e.g. "No installed package found matching input criteria.").
+/// These end with a period and never look like a "Name Id Version" row.
+fn is_winget_no_results(line: &str) -> bool {
+    let l = line.to_lowercase();
+    l.contains("found matching")
+        || l.contains("no installed package")
+        || l.contains("se encontr")
+        || l.contains("aucun")
+        || l.contains("keine")
+        || l.contains("nenhum")
+        || l.contains("не найдено")
+        || l.contains("не установлено")
+        || l.trim_end().ends_with('.')
+}
+
+/// A line that looks like an actual `winget list` table row.
+fn is_winget_row(line: &str) -> bool {
+    line.split_whitespace().count() >= 2 && !is_winget_no_results(line)
+}
+
+/// `winget list --source winget` prints a table: header row (localized:
+/// "Name"/"Nombre"/...), a dashes separator, then the actual entries. Only
+/// rows after the separator count; when no separator is present (older
+/// winget), the first line is treated as the header. Localized "no results"
+/// messages are never counted as rows.
+#[cfg(any(target_os = "windows", test))]
+pub fn count_winget_output(stdout: &str) -> usize {
+    let lines: Vec<&str> = stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    if let Some(idx) = lines.iter().position(|l| l.chars().all(|c| c == '-')) {
+        lines[idx + 1..].iter().filter(|l| is_winget_row(l)).count()
+    } else {
+        lines.iter().skip(1).filter(|l| is_winget_row(l)).count()
+    }
+}
+
+/// `brew list --formula` output — counts package names, ignoring empty lines,
+/// `==> ...` notices and any header/whitespace noise Homebrew may emit.
+#[cfg(any(target_os = "macos", test))]
+pub fn count_brew_output(stdout: &str) -> usize {
+    stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with("==>") && !l.contains(char::is_whitespace))
+        .count()
 }
 
 pub fn format_package_count(count: usize, cmd: &str) -> String {
     format!("{} ({})", count, cmd)
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 pub fn run_package_checks(checks: &[PackageCheck]) -> Vec<(String, String)> {
     thread::scope(|s| {
         let handles: Vec<_> = checks
             .iter()
-            .map(|(cmd, args, timeout)| {
+            .map(|check| {
                 s.spawn(move || {
-                    run_package_check_with_timeout(cmd, args, *timeout)
-                        .map(|c| (cmd.to_string(), format_package_count(c, cmd)))
+                    run_package_check_with_timeout(check).map(|c| {
+                        (
+                            check.label.to_string(),
+                            format_package_count(c, check.label),
+                        )
+                    })
                 })
             })
             .collect();
@@ -60,16 +150,16 @@ pub fn packages_info_from_breakdown(breakdown: &[(String, String)]) -> String {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "linux")]
     #[test]
     fn test_run_package_check_missing_cmd() {
-        assert_eq!(
-            run_package_check_with_timeout(
-                "nonexistent_cmd_xyz",
-                &["--version"],
-                PACKAGE_CHECK_TIMEOUT
-            ),
-            None
-        );
+        let check = PackageCheck {
+            binary: "nonexistent_cmd_xyz",
+            args: &["--version"],
+            timeout: PACKAGE_CHECK_TIMEOUT,
+            label: "nonexistent_cmd_xyz",
+        };
+        assert_eq!(run_package_check_with_timeout(&check), None);
     }
 
     #[test]
@@ -78,12 +168,66 @@ mod tests {
         assert_eq!(format_package_count(0, "brew"), "0 (brew)");
     }
 
-    #[cfg(unix)]
+    #[test]
+    fn test_count_scoop_output() {
+        let stdout = "\nInstalled apps:\n\nName Version Source Updated Info\n---- ------- ------ ------- ----\nfoo 1.0     main\ngit 2.45.0  main\n";
+        assert_eq!(count_scoop_output(stdout), 2);
+        assert_eq!(count_scoop_output(""), 0);
+    }
+
+    #[test]
+    fn test_count_winget_output() {
+        let stdout = "Name             Id                       Version\n-----------------------------------------------------\ngit              Git.Git                  2.45.0\nPowerShell       Microsoft.PowerShell    7.5.0\n";
+        assert_eq!(count_winget_output(stdout), 2);
+        assert_eq!(count_winget_output("Name Id Version\n"), 0);
+    }
+
+    #[test]
+    fn test_count_winget_output_localized_header() {
+        let stdout = "Nombre        Id                  Version\n-----------------------------------------------\ngit           Git.Git             2.45.0\n";
+        assert_eq!(count_winget_output(stdout), 1);
+    }
+
+    #[test]
+    fn test_count_winget_output_source_flag() {
+        let stdout = "Nombre                                                             Id                                     Versión              Disponible\n--------------------------------------------------------------------------------------------------------------------------------------------------\nBrave Beta                                                         Brave.Brave.Beta                       151.1.94.112         \nCPUID CPU-Z 2.19                                                   CPUID.CPU-Z                            2.19                 2.21\n";
+        assert_eq!(count_winget_output(stdout), 2);
+    }
+
+    #[test]
+    fn test_count_winget_output_no_results_message() {
+        let stdout_en = "No installed package found matching input criteria.\n";
+        assert_eq!(count_winget_output(stdout_en), 0);
+        let stdout_es =
+            "No se encontró ningún paquete instalado que coincida con los criterios de entrada.\n";
+        assert_eq!(count_winget_output(stdout_es), 0);
+        let stdout_with_table = "Nombre        Id                  Version\n-----------------------------------------------\ngit           Git.Git             2.45.0\n";
+        assert_eq!(count_winget_output(stdout_with_table), 1);
+    }
+
+    #[test]
+    fn test_count_brew_output_ignores_noise() {
+        let stdout = "\n==> Updating Homebrew...\n\nvim\n\npython@3.12\ngh\n";
+        assert_eq!(count_brew_output(stdout), 3);
+        assert_eq!(count_brew_output("==> notice only\n\n"), 0);
+    }
+
+    #[cfg(target_os = "linux")]
     #[test]
     fn test_multi_manager_format() {
         let checks: &[PackageCheck] = &[
-            ("pacman", &["-Qq"], PACKAGE_CHECK_TIMEOUT),
-            ("dpkg", &["--get-selections"], PACKAGE_CHECK_TIMEOUT),
+            PackageCheck {
+                binary: "pacman",
+                args: &["-Qn"],
+                timeout: PACKAGE_CHECK_TIMEOUT,
+                label: "pacman",
+            },
+            PackageCheck {
+                binary: "dpkg",
+                args: &["--get-selections"],
+                timeout: PACKAGE_CHECK_TIMEOUT,
+                label: "dpkg",
+            },
         ];
         let results = run_package_checks(checks);
 

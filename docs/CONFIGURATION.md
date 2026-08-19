@@ -38,6 +38,9 @@
     <tr><td><code>xfetch --config &lt;path&gt;</code></td><td>Use a custom config file.</td></tr>
     <tr><td><code>xfetch --daemon</code></td><td>Run in daemon mode: pin an animated fetch at the top of the terminal while keeping the prompt usable below. See <a href="DAEMON.md">DAEMON.md</a>.</td></tr>
     <tr><td><code>xfetch --daemon-stop</code></td><td>Stop the running daemon.</td></tr>
+    <tr><td><code>xfetch --no-daemon-live</code></td><td>Disable the live stats daemon (<code>daemon_live</code>) even if it is enabled in the config.</td></tr>
+    <tr><td><code>xfetch --daemon-live-stop</code></td><td>Stop the running live stats daemon.</td></tr>
+    <tr><td><code>xfetch --daemon-live-reload</code></td><td>Force hot reload in the live stats daemon (same as <code>"daemon_live_reload": true</code>).</td></tr>
     <tr><td><code>xfetch --gen-config</code></td><td>Generate a starter config at the default location. See <a href="GEN_CONFIG.md">GEN_CONFIG.md</a>.</td></tr>
     <tr><td><code>xfetch --clean-cache</code></td><td>Clear the module cache.</td></tr>
     <tr><td><code>xfetch --benchmark</code></td><td>Print benchmarking info for the info gathering step.</td></tr>
@@ -94,7 +97,7 @@
   <li><code>user</code>: Current username</li>
   <li><code>uptime</code>: System uptime</li>
   <li><code>datetime</code>: Current date and time</li>
-  <li><code>packages</code>: Package count (pacman, dpkg, brew, scoop, etc.)</li>
+  <li><code>packages</code>: Package count (pacman, dpkg, brew, scoop, etc.). Also <code>packages:&lt;manager&gt;</code> to show a single manager — see <a href="#package-count-modules">Package Count Modules</a>.</li>
   <li><code>shell</code>: Current shell (bash, zsh, powershell, etc.)</li>
   <li><code>terminal</code>: Current terminal emulator</li>
   <li><code>wm</code>: Window Manager / Desktop Environment</li>
@@ -110,6 +113,98 @@
   <li><code>interfaces</code>: Network interfaces</li>
   <li><code>palette</code>: Color palette</li>
 </ul>
+
+<h2 id="package-count-modules">Package Count Modules</h2>
+
+<p>
+  The <code>packages</code> module shows the total package count, joining every detected manager on one line:
+</p>
+
+<pre><code class="language-plain">1090 (pacman) + 21 (aur) + 0 (flatpak)</code></pre>
+
+<p>
+  To show <strong>one manager only</strong> — as its own module line — use the <code>packages:&lt;manager&gt;</code> key. The manager name must match the label shown between parentheses in the <code>packages</code> output.
+</p>
+
+<pre><code class="language-jsonc">{
+    // Arch: official packages in one line, AUR packages in another
+    "modules": ["os", "kernel", "packages:pacman", "packages:aur"]
+}</code></pre>
+
+<p><strong>Per-platform manager labels:</strong></p>
+
+<table>
+  <thead>
+    <tr><th>Key</th><th>Platform</th><th>Counts</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>packages</code></td><td>all</td>
+      <td>Every detected manager, joined horizontally with <code> + </code>.</td>
+    </tr>
+    <tr>
+      <td><code>packages:pacman</code></td><td>Arch (pacman)</td>
+      <td>Official repository packages only (<code>pacman -Qn</code>).</td>
+    </tr>
+    <tr>
+      <td><code>packages:aur</code></td><td>Arch (pacman)</td>
+      <td>AUR and manually installed packages (<code>pacman -Qm</code>).</td>
+    </tr>
+    <tr>
+      <td><code>packages:dpkg</code></td><td>Debian, Ubuntu</td>
+      <td>apt packages.</td>
+    </tr>
+    <tr>
+      <td><code>packages:rpm</code></td><td>Fedora, RHEL, openSUSE</td>
+      <td>RPM packages.</td>
+    </tr>
+    <tr>
+      <td><code>packages:apk</code></td><td>Alpine</td>
+      <td>Alpine packages.</td>
+    </tr>
+    <tr>
+      <td><code>packages:xbps-query</code></td><td>Void</td>
+      <td>Void packages.</td>
+    </tr>
+    <tr>
+      <td><code>packages:portage</code></td><td>Gentoo</td>
+      <td>Portage packages.</td>
+    </tr>
+    <tr>
+      <td><code>packages:nix-env</code></td><td>NixOS</td>
+      <td>Packages in the user profile (<code>nix-env -q</code>).</td>
+    </tr>
+    <tr>
+      <td><code>packages:flatpak</code></td><td>Linux</td>
+      <td>Flatpak applications (when installed).</td>
+    </tr>
+    <tr>
+      <td><code>packages:snap</code></td><td>Linux</td>
+      <td>Snap packages (only when snapd is running).</td>
+    </tr>
+    <tr>
+      <td><code>packages:brew</code></td><td>macOS</td>
+      <td>Homebrew formulae.</td>
+    </tr>
+    <tr>
+      <td><code>packages:scoop</code></td><td>Windows</td>
+      <td>Scoop apps.</td>
+    </tr>
+    <tr>
+      <td><code>packages:winget</code></td><td>Windows</td>
+      <td>Apps installed through the winget source.</td>
+    </tr>
+  </tbody>
+</table>
+
+<blockquote>
+  <strong>Notes:</strong>
+  <ul>
+    <li>A manager only appears when it is installed and detected; the same manager can produce several labels (e.g. <code>pacman</code> and <code>aur</code> on Arch).</li>
+    <li>A <code>packages:&lt;manager&gt;</code> key whose label was not detected renders nothing — the module line is skipped, with no error.</li>
+    <li>There is no built-in vertical/list rendering of the full breakdown; add one <code>packages:&lt;manager&gt;</code> key per manager to get one line each.</li>
+  </ul>
+</blockquote>
 
 <h2>Logos and ASCII Art</h2>
 
@@ -325,6 +420,51 @@
   Full reference, usage and troubleshooting: see <a href="DAEMON.md">DAEMON.md</a>.
 </p>
 
+<h3>Live Stats Daemon</h3>
+
+<p>
+  <code>daemon_live</code> pins the fetch block at the top of the terminal and
+  re-probes a lightweight module subset every <code>daemon_live_refresh</code> seconds
+  (cpu, memory, battery, datetime, ...), so the pinned fetch stays live. Activation is
+  config-only; disable it from the terminal with <code>--no-daemon-live</code> and stop
+  it with <code>--daemon-live-stop</code>. The animated-logo daemon is unaffected.
+</p>
+
+<table>
+  <thead>
+    <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>daemon_live</code></td><td>boolean</td><td><code>false</code></td>
+      <td>Enable the live stats daemon.</td>
+    </tr>
+    <tr>
+      <td><code>daemon_live_refresh</code></td><td>number</td><td>per-platform</td>
+      <td>Seconds between refreshes (Linux 2, macOS 3, Windows 5).</td>
+    </tr>
+    <tr>
+      <td><code>daemon_live_modules</code></td><td>array</td><td>per-platform</td>
+      <td>Modules shown/refreshed; defaults to the platform's live set from <code>platform/&lt;os&gt;/live.rs</code>.</td>
+    </tr>
+    <tr>
+      <td><code>daemon_live_reload</code></td><td>boolean</td><td><code>false</code></td>
+      <td>Hot reload: watches the config (and active theme) and re-applies changes without restarting. Equivalent CLI flag: <code>--daemon-live-reload</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<pre><code class="language-jsonc">{
+    "daemon_live": true,
+    "daemon_live_refresh": 2,
+    "daemon_live_reload": true,
+    "daemon_live_modules": ["cpu", "memory", "battery", "datetime"]
+}</code></pre>
+
+<p>
+  Full reference: see the Live Stats Daemon section in <a href="DAEMON.md">DAEMON.md</a>.
+</p>
+
 <h2>Config Providers (Extensions)</h2>
 
 <p>
@@ -361,6 +501,61 @@
         }
     ]
 }</code></pre>
+
+<h2>Effects (Intro Animations)</h2>
+
+<p>
+  <strong>Effects</strong> animate the way the info appears when xfetch starts. The core renders the module lines, hands them to an effect binary, and plays the returned frames before settling on the final content — e.g. a &quot;decrypt&quot; intro that unscrambles each line.
+</p>
+
+<p>
+  Effects are <strong>opt-in</strong>: nothing happens when the effect binary is not installed, and the fetch renders normally. Multiple effects can be chained — they play in sequence.
+</p>
+
+<pre><code class="language-jsonc">{
+    &quot;effects&quot;: [
+        { &quot;plugin&quot;: &quot;glitch&quot;, &quot;duration_ms&quot;: 700, &quot;fps&quot;: 30 },
+        { &quot;plugin&quot;: &quot;decrypt&quot;, &quot;duration_ms&quot;: 1500, &quot;fps&quot;: 30 }
+    ]
+}</code></pre>
+
+<p><strong>Installation:</strong> drop the effect binary (<code>xfetch-effect-&lt;name&gt;</code>) in <code>~/.config/xfetch/effects/</code> (or anywhere in PATH). Effect implementations are collected in the <code>xfetch-cli/effects</code> repository.</p>
+
+<table>
+  <thead>
+    <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>plugin</code></td><td>string</td><td>—</td>
+      <td>Effect name (binary <code>xfetch-effect-&lt;name&gt;</code>).</td>
+    </tr>
+    <tr>
+      <td><code>style</code></td><td>string</td><td>none</td>
+      <td>Effect-specific style selector, passed to the effect.</td>
+    </tr>
+    <tr>
+      <td><code>duration_ms</code></td><td>number</td><td>effect default</td>
+      <td>Total animation length in milliseconds.</td>
+    </tr>
+    <tr>
+      <td><code>fps</code></td><td>number</td><td>effect default</td>
+      <td>Frames per second.</td>
+    </tr>
+    <tr>
+      <td><code>args</code></td><td>object</td><td>none</td>
+      <td>Free-form parameters passed to the effect.</td>
+    </tr>
+    <tr>
+      <td><code>timeout_secs</code></td><td>number</td><td>none</td>
+      <td>Safety net: kills the effect process if it runs longer.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>
+  The effect protocol lives in <code>xfetch-effect-api</code> (<code>xfetch-cli/api</code>). Effect implementations are collected in <a href="https://github.com/xfetch-cli/effects">xfetch-cli/effects</a>; install them with <code>xfetch effects install &lt;name&gt;</code>. See <a href="EFFECTS.md">EFFECTS.md</a>.
+</p>
 
 <h2>Palette Style</h2>
 

@@ -1,5 +1,74 @@
 # Changelog
 
+## 2026-08-19 — v0.6.0
+
+### Themes
+
+- `theme set` no longer rewrites the whole config: it edits only the `theme` key, preserving comments, formatting and the rest of the file (single quotes and bare keys supported).
+- Theme format simplified: themes declare only what they change. Icons were removed from theme files and from `theme export` — they are a per-user font choice, filled from the defaults. New `logo_color` field colors the ASCII logo; `colors` already covers any module key, including `plugin:<name>` entries.
+- New `logo_colors` field: per-row logo coloring (array of colors, cycled by row) — works for static logos and animation frames.
+- 86 tests, clippy clean.
+
+### Windows: Package Counter and Probes
+
+- `winget` now counts only packages installed via winget (`--source winget`); before it counted every registered app (ARP/MSIX included). Chocolatey was removed from the core probes (it comes back as a plugin later).
+- Shell detection walks the parent process chain instead of trusting `PSModulePath`, so `cmd.exe` is no longer reported as PowerShell; `local_ip` prefers the physical adapter (vEthernet/WSL/Hyper-V skipped); Windows version → logo mapping uses build numbers (`10.0.17763` is no longer matched as Windows 7).
+- GPU/battery/datetime probes hardened (`-NoProfile -NonInteractive`, UTF-8 output, exit-status checks); `expand_path("~")` no longer panics; the localized winget "no packages" message is no longer counted; `--daemon` prints a warning on Windows; zero-capacity disks are skipped.
+
+### Plugin and Extension Timeouts
+
+- New top-level `subprocess.rs` (shared by probes, plugins and extensions): bounded pipe drains — grandchildren holding the pipe (winget COM server, etc.) can no longer hang xfetch — plus stdin support for the plugin protocol and process-tree kill (Windows via `taskkill` in `platform/windows/process.rs`).
+- Optional per-plugin `timeout_secs` in the config (`info_plugins`, `config_providers`, `logo_animation`): the core kills the process when exceeded. Opt-in — behavior is unchanged when unset. Plugins/extensions also declare their own budget via the new `with_timeout` API helper (see xfetch-cli/api).
+- All Windows-specific logic is consolidated under `src/info/platform/windows/` (`battery`, `datetime`, `gpu`, `network`, `packages`, `process`, `shell`, `software`, `version`); `info/software.rs` and `info/system.rs` dispatch to it.
+- 79 tests, clippy clean.
+
+### macOS and Linux: Per-Platform Modularization
+
+- **macOS** now mirrors the Windows layout: `platform/macos/version.rs` (version → logo mapping, e.g. macOS 15 → sequoia), `platform/macos/software.rs` (`get_shell_info`/`get_desktop_info`, Aqua no longer inline in `info/software.rs`), `platform/macos/network.rs` (`local_ip` prefers the physical adapter — utun/tap/bridge/AWDL/Tailscale skipped).
+- **Linux** gets `platform/linux/os_release.rs` (`/etc/os-release` parsing moved out of `logos.rs`) and `platform/linux/network.rs` (`local_ip` prefers the physical adapter — docker0/veth/br-/virbr/tun/tap/Tailscale skipped).
+- **Arch package split**: `pacman` counts only official packages (`pacman -Qn`) and a new `aur` entry counts AUR/manual installs (`pacman -Qm`). Running `yay -Qq`/`paru -Qq` alongside pacman double- or triple-counted the same set (AUR packages are installed via pacman); helpers are no longer probed. The pacman database fast-path was dropped since it holds official + AUR together. Gentoo `portage` count is now displayed (it was computed but never surfaced). `PackageCheck` became a struct with a distinct `label`, Linux-only. No changes to other distros.
+- `logos.rs` has no `#[cfg(target_os)]` anymore: `detect_os_ids` and `logo_category` moved to `platform/mod.rs`; the Windows logo mapping still lives in `platform/windows/version.rs` (unchanged).
+- `get_local_ip_info` is dispatched through `platform::get_local_ip_info` like the other probes; `info/system.rs` no longer carries per-OS `#[cfg]` blocks. Windows behavior is untouched.
+- 94 tests, clippy clean (Linux CI unchanged).
+
+### Live Stats Daemon (`daemon_live`)
+
+- New live stats daemon, sibling of the animated-logo daemon (`ui/daemon.rs` is untouched): pins the fetch at the top of the terminal and re-probes a lightweight module subset every `daemon_live_refresh` seconds, re-rendering with fresh values. Activation is config-only (`"daemon_live": true`); `--no-daemon-live` disables it from the terminal and `--daemon-live-stop` stops it (own pid file `daemon_live.pid`).
+- Per-OS refresh policy lives in the new `platform/<os>/live.rs`: Linux refreshes 7 modules every 2 s, macOS every 3 s, Windows every 5 s (battery excluded by default — it spawns `wmic`/PowerShell). `daemon_live_modules` overrides the set.
+- When `logo_animation` is configured the logo keeps animating while the content refreshes live; otherwise it is static. The engine lives in `ui/live.rs` and reuses the existing `print.rs` builders and probes — no existing rendering/probe code changed.
+- **Hot reload**: `daemon_live_reload` (or `--daemon-live-reload`) watches the config file and the active theme (mtime) and re-applies modules, colors, layout, logo and refresh cadence without restarting; config providers (extensions) re-run on each reload. Disabled by default.
+- 103 tests, clippy clean.
+
+### Effects (Intro Animations)
+
+- New **effects** category: installable intro animations over the info lines. The core renders the content, sends it to an effect binary (`xfetch-effect-<name>`, protocol `xfetch-effect-api`), and plays the returned frames before settling on the final content. Opt-in via `"effects"` in the config — a missing binary or bad response falls back to the plain fetch (no behavior change).
+- New `xfetch-effect-api` crate in `xfetch-cli/api` (`EffectRequest`/`EffectResponse`, validation, IO/timeout helpers) + a reference `decrypt` effect in `crates/effect-api/examples/decrypt-effect.rs`. The `xfetch-cli/effects` repo will host effect implementations.
+- Core wiring: `src/effects/` (binary resolution + runner), `"effects"` config block, `print_effect_output` (plays effect frames over the content, then settles), and `ui/logo.rs::build_logo_frames` (shared logo-frame builder, also used by the live daemon). Nothing existing was removed.
+- 106 tests, clippy clean.
+
+### Effects Repository
+
+- New `xfetch-cli/effects` repository: workspace mirroring `plugins` (one crate per effect, binary `xfetch-effect-<name>`). The `decrypt` effect lives there (`effects/decrypt`) as the reference implementation of the protocol.
+- New CLI subcommand `xfetch effects install|list|remove` (mirrors `plugin`): `install` builds from a local path or clones the effects repo (default `github.com/xfetch-cli/effects`, override with `--repo`/`XFETCH_EFFECT_REPO`) and copies the binary to `~/.config/xfetch/effects/`.
+- Docs: `docs/EFFECTS.md` (install, config, protocol, writing effects).
+
+### Effects: Chaining + Glitch + Shared Lib
+
+- `"effects"` now accepts a **single effect or a list** — effects play in sequence (glitch → decrypt → ...). The core runs each effect on the rendered lines and plays the frames one after another before settling (untagged deserialization keeps existing single-object configs working).
+- New `glitch` effect in `xfetch-cli/effects` (`effects/glitch`): stuttery scrambled flicker with deterministic "corruption bursts", settling on the real text.
+- New shared crate `effects/effects-lib` (`xfetch-effects-lib`) in the effects repo: ANSI-safe tokenizer + reveal helpers, used by `decrypt` and `glitch` (no effect reimplements the tokenizer).
+- 106 tests core + effects tests, clippy clean.
+
+## 2026-08-18 — v0.5.0
+
+### Per-Platform Package Counters
+
+- **Windows**: `winget` support added (`winget list --include-unknown --disable-interactivity --accept-source-agreements`, 20 s timeout for slow first runs); `choco list --local-only` no longer miscounts — its "X packages installed." summary line is skipped; `scoop list` counts rows instead of subtracting a fixed header offset.
+- **macOS**: `brew list --formula` output is parsed defensively (empty lines, `==> ...` notices and any whitespace noise are ignored), fixing counts that broke on Homebrew output variations.
+- **Linux**: `yay` and `paru` (Arch AUR helpers) added to the probes, alongside `pacman`.
+- Separation is kept per OS folder (`platform/{linux,macos,windows}/packages.rs`), each deciding commands, args and timeouts; the pure output parsers moved to `shared/packages.rs` (`count_scoop_output`, `count_choco_output`, `count_winget_output`, `count_brew_output`) so their tests run on any platform's local CI — +4 tests, 82 total.
+- Cleaned up cfg gating so the cross-target checks (`cargo check --target` for Windows and macOS) are warning-free: Linux-only machinery (`PackageCheck`, `run_package_checks`, `run_package_check_with_timeout`) is `cfg(target_os = "linux")`.
+
 ## 2026-08-18 — v0.5.0
 
 ### No More `configs/` Folder
