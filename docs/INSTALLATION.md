@@ -263,6 +263,52 @@ makepkg -si</code></pre>
 
 <hr>
 
+<h2>Updating</h2>
+
+<p>
+  xfetch can check for and install new releases itself:
+</p>
+
+<pre><code class="language-bash">xfetch update --check   # only report; exits 1 when a newer release exists
+xfetch update           # install the newest release
+xfetch update --yes     # skip the confirmation prompt</code></pre>
+
+<p>
+  The command detects how the binary was installed before touching anything:
+</p>
+
+<ul>
+  <li>
+    <strong>Prebuilt installs</strong> (<code>install-prebuilt.sh</code>,
+    typically <code>~/.local/bin</code>): the matching release asset is
+    downloaded, verified against the published <code>SHA256SUMS</code>,
+    extracted and moved over the current executable with an atomic rename. A
+    single <code>xfetch.bak</code> keeps the previous binary and is
+    overwritten on the next update.
+  </li>
+  <li>
+    <strong>cargo installs</strong> (<code>~/.cargo/bin</code>): updated with
+    <code>cargo install xfetch-cli --force --locked</code>.
+  </li>
+  <li>
+    <strong>Package-manager installs and local builds</strong>: never replaced;
+    the command prints the right command instead.
+  </li>
+</ul>
+
+<p>
+  <code>xfetch update --prebuilt --bin-dir &lt;dir&gt;</code> forces the
+  in-place update of <code>&lt;dir&gt;/xfetch</code> (Unix only). On Windows
+  the prebuilt path is not available yet; use
+  <code>cargo install xfetch-cli --force</code> or your installer of choice.
+</p>
+
+<p>
+  <code>GH_TOKEN</code> or <code>GITHUB_TOKEN</code> raise the GitHub API rate
+  limit, and <code>XFETCH_UPDATE_API</code> overrides the release endpoint
+  (useful for mirrors and tests).
+</p>
+
 <h2>Uninstallation</h2>
 
 <p>

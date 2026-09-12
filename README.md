@@ -195,6 +195,8 @@ xfetch plugin install <name>    # install a plugin
 xfetch extension install <name> # install an extension
 xfetch theme list               # list themes
 xfetch effects install <name>   # install an intro effect (e.g. decrypt)
+xfetch update --check           # check for a newer release
+xfetch update                   # update to the latest release
 ```
 
 > Full documentation: see the docs below.

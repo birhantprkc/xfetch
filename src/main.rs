@@ -10,6 +10,8 @@ mod plugins;
 mod subprocess;
 mod themes;
 mod ui;
+#[cfg(feature = "update")]
+mod update;
 mod wasm;
 
 use crate::config::{generate_config, load_config};
@@ -162,6 +164,50 @@ fn run(cli: Cli) -> Result<(), error::XFetchError> {
                     })
             }
         },
+        Some(Commands::Update {
+            check,
+            prebuilt,
+            bin_dir,
+            yes,
+        }) => {
+            #[cfg(feature = "update")]
+            {
+                let options = update::UpdateOptions {
+                    check,
+                    prebuilt,
+                    bin_dir: bin_dir.map(PathBuf::from),
+                    yes,
+                };
+                let outcome = update::run(options).map_err(error::XFetchError::Fatal)?;
+                match outcome {
+                    update::UpdateOutcome::UpToDate { current, latest } => {
+                        println!("xfetch {} is up to date (latest v{}).", current, latest);
+                    }
+                    update::UpdateOutcome::UpdateAvailable {
+                        current,
+                        latest,
+                        method,
+                        command,
+                    } => {
+                        println!("xfetch {} -> v{} available ({}).", current, latest, method);
+                        println!("  {}", command);
+                        std::process::exit(1);
+                    }
+                    update::UpdateOutcome::Updated { from, to, path } => {
+                        println!("Updated xfetch {} -> {} ({})", from, to, path.display());
+                    }
+                    update::UpdateOutcome::Manual { message } => println!("{}", message),
+                }
+                Ok(())
+            }
+            #[cfg(not(feature = "update"))]
+            {
+                let _ = (check, prebuilt, bin_dir, yes);
+                Err(error::XFetchError::Fatal(
+                    "This xfetch binary was built without the 'update' feature.".to_string(),
+                ))
+            }
+        }
         Some(Commands::Wasm { action }) => match action {
             WasmCommands::Inspect { path, json } => {
                 wasm::inspect::inspect(std::path::Path::new(&path), json)

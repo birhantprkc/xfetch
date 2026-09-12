@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand};
     version,
     about,
     long_about = None,
-    after_help = "Examples:\n  xfetch\n  xfetch --config ~/.config/xfetch/config.jsonc\n  xfetch --gen-config\n  xfetch --clean-cache\n  xfetch --daemon\n  xfetch --daemon-stop\n  xfetch --no-daemon-live\n  xfetch --daemon-live-stop\n  xfetch --daemon-live-reload\n  xfetch plugin install animate-logo\n  xfetch plugin list\n  xfetch plugin remove animate-logo\n  xfetch effects install decrypt\n  xfetch effects list\n  xfetch effects remove decrypt\n  xfetch extension install config-roulette\n  xfetch extension list\n  xfetch extension remove config-roulette\n  xfetch wasm inspect ./plugin.wasm\n  xfetch wasm run ./plugin.wasm --request '{\"version\":1,\"kind\":\"info_provider\"}'\n  xfetch wasm wit\n  xfetch theme list\n  xfetch theme set dracula\n  xfetch theme remove dracula\n  xfetch theme export my-theme"
+    after_help = "Examples:\n  xfetch\n  xfetch --config ~/.config/xfetch/config.jsonc\n  xfetch --gen-config\n  xfetch --clean-cache\n  xfetch --daemon\n  xfetch --daemon-stop\n  xfetch --no-daemon-live\n  xfetch --daemon-live-stop\n  xfetch --daemon-live-reload\n  xfetch update --check\n  xfetch update\n  xfetch plugin install animate-logo\n  xfetch plugin list\n  xfetch plugin remove animate-logo\n  xfetch effects install decrypt\n  xfetch effects list\n  xfetch effects remove decrypt\n  xfetch extension install config-roulette\n  xfetch extension list\n  xfetch extension remove config-roulette\n  xfetch wasm inspect ./plugin.wasm\n  xfetch wasm run ./plugin.wasm --request '{\"version\":1,\"kind\":\"info_provider\"}'\n  xfetch wasm wit\n  xfetch theme list\n  xfetch theme set dracula\n  xfetch theme remove dracula\n  xfetch theme export my-theme"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -79,6 +79,22 @@ pub enum Commands {
     Wasm {
         #[command(subcommand)]
         action: WasmCommands,
+    },
+    /// Check for a newer xfetch release and install it.
+    Update {
+        /// Only check; exit with code 1 when a newer release exists.
+        #[arg(long)]
+        check: bool,
+        /// Install the prebuilt release in place, even for local builds
+        /// (Unix only).
+        #[arg(long)]
+        prebuilt: bool,
+        /// Directory holding the xfetch binary to replace (with --prebuilt).
+        #[arg(long, value_name = "DIR")]
+        bin_dir: Option<String>,
+        /// Assume yes for confirmation prompts.
+        #[arg(long, short = 'y')]
+        yes: bool,
     },
 }
 
