@@ -85,10 +85,24 @@ detect_arch() {
     esac
 }
 
+# True on musl-based Linux (Alpine, ...), where the glibc build cannot run.
+is_musl() {
+    if [ -e /lib/ld-musl-x86_64.so.1 ] || [ -e /lib/ld-musl-aarch64.so.1 ]; then
+        return 0
+    fi
+    ldd --version 2>&1 | grep -qi musl
+}
+
 # Map detected OS/arch to the rust target triple used in release assets
 resolve_target() {
     case "${OS_NAME}-${ARCH_NAME}" in
-        linux-x86_64)  TARGET_TRIPLE="x86_64-unknown-linux-gnu" ;;
+        linux-x86_64)
+            if is_musl; then
+                TARGET_TRIPLE="x86_64-unknown-linux-musl"
+            else
+                TARGET_TRIPLE="x86_64-unknown-linux-gnu"
+            fi
+            ;;
         linux-aarch64) TARGET_TRIPLE="aarch64-unknown-linux-gnu" ;;
         macos-x86_64)  TARGET_TRIPLE="x86_64-apple-darwin" ;;
         macos-aarch64) TARGET_TRIPLE="aarch64-apple-darwin" ;;
