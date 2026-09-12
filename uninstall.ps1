@@ -35,6 +35,19 @@ if (Test-Path $Binary) {
     Write-Host "Binary not found at $Binary" -ForegroundColor Yellow
 }
 
+# Remove binary installed by the prebuilt installer
+$PrebuiltBin = Join-Path $env:LOCALAPPDATA "Programs\xfetch\bin"
+$PrebuiltBinary = Join-Path $PrebuiltBin "xfetch.exe"
+if (Test-Path $PrebuiltBinary) {
+    Remove-Item $PrebuiltBinary -Force
+    Write-Host "Removed binary: $PrebuiltBinary" -ForegroundColor Green
+    $removedAny = $true
+    $PrebuiltRoot = Join-Path $env:LOCALAPPDATA "Programs\xfetch"
+    if ((Test-Path $PrebuiltRoot) -and -not (Get-ChildItem $PrebuiltRoot -Recurse -File)) {
+        Remove-Item $PrebuiltRoot -Recurse -Force
+    }
+}
+
 # Remove config (only with -Purge)
 $ConfigDir = Join-Path $env:APPDATA "xfetch"
 if ($Purge) {

@@ -106,6 +106,10 @@ curl -fsSL https://raw.githubusercontent.com/xfetch-cli/xfetch/main/install.sh |
 
 **Windows (PowerShell):**
 ```powershell
+# Prebuilt binary (no Rust needed)
+irm https://raw.githubusercontent.com/xfetch-cli/xfetch/main/install-prebuilt.ps1 | iex
+
+# From source
 irm https://raw.githubusercontent.com/xfetch-cli/xfetch/main/install.ps1 | iex
 ```
 

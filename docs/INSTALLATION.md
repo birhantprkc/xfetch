@@ -45,6 +45,13 @@
 <pre><code class="language-bash">curl -fsSL https://raw.githubusercontent.com/xfetch-cli/xfetch/main/install.sh | bash</code></pre>
 
 <p>
+  Prefer no toolchain? The prebuilt installer downloads the verified binary from
+  the latest release (no Rust, no compilation):
+</p>
+
+<pre><code class="language-bash">curl -fsSL https://raw.githubusercontent.com/xfetch-cli/xfetch/main/install-prebuilt.sh | bash</code></pre>
+
+<p>
   If <code>cargo</code> is not installed, the script will offer to install Rust via rustup automatically.
 </p>
 
@@ -71,6 +78,16 @@
 <pre><code class="language-bash">curl -fsSL https://raw.githubusercontent.com/xfetch-cli/xfetch/main/install.sh | bash -s -- --yes</code></pre>
 
 <h3>Windows (PowerShell)</h3>
+
+<p>
+  Prebuilt (no Rust needed):
+</p>
+
+<pre><code class="language-powershell">irm https://raw.githubusercontent.com/xfetch-cli/xfetch/main/install-prebuilt.ps1 | iex</code></pre>
+
+<p>
+  From source (installs Rust via rustup when missing, then builds):
+</p>
 
 <pre><code class="language-powershell">irm https://raw.githubusercontent.com/xfetch-cli/xfetch/main/install.ps1 | iex</code></pre>
 
