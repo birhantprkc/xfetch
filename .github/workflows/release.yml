@@ -59,7 +59,10 @@ jobs:
           cp LICENSE README.md stage/
 
           if [ "$RUNNER_OS" = "Windows" ]; then
-            tar -a -c -f "xfetch-${VERSION}-${TARGET}.zip" -C stage .
+            # GNU tar in Git Bash cannot write ZIP archives: `tar -a` with a
+            # .zip name silently produces a plain tar. Use the 7-Zip shipped
+            # on the runner instead.
+            (cd stage && 7z a -tzip "../xfetch-${VERSION}-${TARGET}.zip" . > /dev/null)
           else
             tar -czf "xfetch-${VERSION}-${TARGET}.tar.gz" -C stage .
           fi
@@ -82,6 +85,21 @@ jobs:
           path: assets
           pattern: '*'
           merge-multiple: true
+
+      - name: Validate archives
+        run: |
+          set -euo pipefail
+          cd assets
+          for f in *.tar.gz; do
+            [ -e "$f" ] || continue
+            tar -tzf "$f" > /dev/null
+            tar -tzf "$f" | grep -Eq '(^|/)xfetch$' || { echo "$f does not contain xfetch"; exit 1; }
+          done
+          for f in *.zip; do
+            [ -e "$f" ] || continue
+            unzip -t "$f" > /dev/null
+            unzip -Z1 "$f" | grep -Eq '(^|/)xfetch\.exe$' || { echo "$f does not contain xfetch.exe"; exit 1; }
+          done
 
       - name: Generate checksums
         run: |
