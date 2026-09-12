@@ -28,6 +28,23 @@ xfetch extension remove &lt;name&gt;</code></pre>
 <p>Installed binaries live in <code>~/.config/xfetch/extensions/</code> and are named
 <code>xfetch-extension-&lt;name&gt;</code> (<code>.exe</code> on Windows).</p>
 
+<h2>WebAssembly Extensions</h2>
+
+<p>
+  Extensions can be WebAssembly artifacts: the core detects the header, runs
+  the guest in the sandbox and feeds it the resolved config JSON. Capabilities
+  (for example reading an allowlisted config directory) come from the manifest,
+  and limits are enforced by the runtime.
+</p>
+
+<pre><code class="language-bash">xfetch extension install ./extensions/wasm-night-mode
+xfetch extension install ./extensions/wasm-updates-footer</code></pre>
+
+<p>
+  See <a href="WASM.md">WASM.md</a> for the manifest schema, host calls and
+  examples.
+</p>
+
 <h2>Activation</h2>
 
 <p>

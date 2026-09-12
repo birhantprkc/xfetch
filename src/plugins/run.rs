@@ -1,6 +1,7 @@
 use crate::config::{InfoPluginConfig, LogoAnimationConfig};
 use crate::plugins::find_plugin_binary;
 use crate::subprocess::run_cmd_with_stdin_timeout;
+use crate::wasm::{self, GuestKind};
 use std::time::Duration;
 use xfetch_plugin_api::{
     AnimationFrame, InfoPluginRequest, InfoPluginResponse, LogoAnimationArgs, LogoAnimationRequest,
@@ -14,6 +15,12 @@ fn run_plugin_raw(
 ) -> Result<Vec<u8>, String> {
     let plugin_path = find_plugin_binary(plugin_name)
         .ok_or_else(|| format!("Plugin not found: {}", plugin_name))?;
+
+    // Wasm guests reuse the JSON protocol; the runtime enforces the manifest
+    // capabilities and limits instead of spawning a native process.
+    if wasm::is_wasm_file(&plugin_path) {
+        return wasm::run_request(&plugin_path, payload, timeout, GuestKind::Plugin);
+    }
 
     let output =
         run_cmd_with_stdin_timeout(&plugin_path, &[], Some(payload), timeout).ok_or_else(|| {

@@ -6,7 +6,7 @@ use clap::{Parser, Subcommand};
     version,
     about,
     long_about = None,
-    after_help = "Examples:\n  xfetch\n  xfetch --config ~/.config/xfetch/config.jsonc\n  xfetch --gen-config\n  xfetch --clean-cache\n  xfetch --daemon\n  xfetch --daemon-stop\n  xfetch --no-daemon-live\n  xfetch --daemon-live-stop\n  xfetch --daemon-live-reload\n  xfetch plugin install animate-logo\n  xfetch plugin list\n  xfetch plugin remove animate-logo\n  xfetch effects install decrypt\n  xfetch effects list\n  xfetch effects remove decrypt\n  xfetch extension install config-roulette\n  xfetch extension list\n  xfetch extension remove config-roulette\n  xfetch theme list\n  xfetch theme set dracula\n  xfetch theme remove dracula\n  xfetch theme export my-theme"
+    after_help = "Examples:\n  xfetch\n  xfetch --config ~/.config/xfetch/config.jsonc\n  xfetch --gen-config\n  xfetch --clean-cache\n  xfetch --daemon\n  xfetch --daemon-stop\n  xfetch --no-daemon-live\n  xfetch --daemon-live-stop\n  xfetch --daemon-live-reload\n  xfetch plugin install animate-logo\n  xfetch plugin list\n  xfetch plugin remove animate-logo\n  xfetch effects install decrypt\n  xfetch effects list\n  xfetch effects remove decrypt\n  xfetch extension install config-roulette\n  xfetch extension list\n  xfetch extension remove config-roulette\n  xfetch wasm inspect ./plugin.wasm\n  xfetch wasm run ./plugin.wasm --request '{\"version\":1,\"kind\":\"info_provider\"}'\n  xfetch wasm wit\n  xfetch theme list\n  xfetch theme set dracula\n  xfetch theme remove dracula\n  xfetch theme export my-theme"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -74,6 +74,12 @@ pub enum Commands {
         #[command(subcommand)]
         action: EffectCommands,
     },
+    /// WebAssembly guest tooling: inspect artifacts, run them with a raw JSON
+    /// request and print the component protocol.
+    Wasm {
+        #[command(subcommand)]
+        action: WasmCommands,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -121,4 +127,36 @@ pub enum EffectCommands {
     Remove {
         name: String,
     },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum WasmCommands {
+    /// Print the resolved kind, manifest, capabilities and limits of an
+    /// artifact without executing it.
+    Inspect {
+        path: String,
+        /// Emit the report as JSON instead of a human-readable summary.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Execute a wasm guest with a raw JSON request and print its response.
+    /// Useful for authors and for scripted end-to-end checks.
+    Run {
+        path: String,
+        /// JSON request passed to the guest (defaults to `{}`).
+        #[arg(long)]
+        request: Option<String>,
+        /// Read the JSON request from a file instead of `--request`.
+        #[arg(long, value_name = "PATH")]
+        request_file: Option<String>,
+        /// Safety timeout in seconds; overrides the manifest limit.
+        #[arg(long)]
+        timeout: Option<u64>,
+        /// Guest contract used to select the component world.
+        #[arg(long, value_parser = ["plugin", "effect", "extension"], default_value = "plugin")]
+        kind: String,
+    },
+    /// Print the WIT package for component guests (componentize-py,
+    /// componentize-js, wit-bindgen, ...).
+    Wit,
 }

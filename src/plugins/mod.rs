@@ -45,16 +45,28 @@ pub fn plugin_binary_name(plugin_name: &str) -> String {
     }
 }
 
+/// Installed wasm artifact name: `xfetch-plugin-<name>.wasm`.
+pub fn plugin_wasm_name(plugin_name: &str) -> String {
+    format!("{}.wasm", plugin_binary_name(plugin_name))
+}
+
+/// Sidecar manifest name next to the wasm artifact.
+pub fn plugin_manifest_name(plugin_name: &str) -> String {
+    format!("{}.json", plugin_binary_name(plugin_name))
+}
+
 fn extract_plugin_name(path: &Path) -> Option<String> {
     let filename = path.file_name()?.to_str()?;
-    if let Some(name) = filename.strip_prefix(PLUGIN_PREFIX) {
-        if cfg!(target_os = "windows") {
-            name.strip_suffix(EXE_EXT).map(|n| n.to_string())
-        } else {
-            Some(name.to_string())
-        }
+    let name = filename.strip_prefix(PLUGIN_PREFIX)?;
+    // Sidecar manifests are not plugins.
+    if name.ends_with(".json") {
+        return None;
+    }
+    let name = name.strip_suffix(".wasm").unwrap_or(name);
+    if cfg!(target_os = "windows") {
+        name.strip_suffix(EXE_EXT).map(|n| n.to_string())
     } else {
-        None
+        Some(name.to_string())
     }
 }
 
@@ -131,33 +143,71 @@ pub fn find_plugin_binary(plugin_name: &str) -> Option<PathBuf> {
         return Some(direct_path.to_path_buf());
     }
 
-    let binary_name = plugin_binary_name(plugin_name);
+    let names = [
+        plugin_binary_name(plugin_name),
+        plugin_wasm_name(plugin_name),
+    ];
 
-    if let Some(path) = find_in_path(&binary_name) {
-        return Some(path);
+    for binary_name in &names {
+        if let Some(path) = find_in_path(binary_name) {
+            return Some(path);
+        }
     }
 
     for config_dir in config_search_dirs() {
-        let in_config_dir = config_dir
-            .join(CONFIG_DIR_NAME)
-            .join(LEGACY_PLUGINS_DIR)
-            .join(&binary_name);
-        if in_config_dir.is_file() {
-            return Some(in_config_dir);
+        for binary_name in &names {
+            let in_config_dir = config_dir
+                .join(CONFIG_DIR_NAME)
+                .join(LEGACY_PLUGINS_DIR)
+                .join(binary_name);
+            if in_config_dir.is_file() {
+                return Some(in_config_dir);
+            }
         }
     }
 
     if let Ok(cwd) = env::current_dir() {
         for plugin_dir in candidate_plugin_dirs_from(&cwd, plugin_name) {
-            for candidate in candidate_plugin_binary_paths_from(&plugin_dir, &binary_name) {
-                if candidate.is_file() {
-                    return Some(candidate);
+            for binary_name in &names {
+                for candidate in candidate_plugin_binary_paths_from(&plugin_dir, binary_name) {
+                    if candidate.is_file() {
+                        return Some(candidate);
+                    }
+                }
+                for candidate in candidate_wasm_paths_from(&plugin_dir, binary_name) {
+                    if candidate.is_file() {
+                        return Some(candidate);
+                    }
                 }
             }
         }
     }
 
     None
+}
+
+/// Development-time wasm paths inside a source directory: the conventional
+/// cargo wasm target directories for `wasm32-wasip1` and the legacy
+/// `wasm32-wasi` name.
+fn candidate_wasm_paths_from(plugin_dir: &Path, binary_name: &str) -> Vec<PathBuf> {
+    let mut candidates = vec![
+        plugin_dir
+            .join("target/wasm32-wasip1/release")
+            .join(binary_name),
+        plugin_dir
+            .join("target/wasm32-wasi/release")
+            .join(binary_name),
+    ];
+
+    let mut current = plugin_dir.parent();
+    while let Some(dir) = current {
+        candidates.push(dir.join("target/wasm32-wasip1/release").join(binary_name));
+        candidates.push(dir.join("target/wasm32-wasi/release").join(binary_name));
+        current = dir.parent();
+    }
+
+    candidates.dedup();
+    candidates
 }
 
 #[cfg(test)]

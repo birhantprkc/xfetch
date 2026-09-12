@@ -1,6 +1,6 @@
 [package]
 name = "xfetch-cli"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2024"
 license = "MIT"
 description = "XFetch — a fast, customizable system information fetch tool for the terminal"
@@ -9,7 +9,15 @@ description = "XFetch — a fast, customizable system information fetch tool for
 name = "xfetch"
 path = "src/main.rs"
 
+[features]
+# WASM plugin/effect/extension support is enabled by default; build with
+# `--no-default-features` for a minimal binary without the wasmtime runtime.
+default = ["wasm"]
+wasm = ["dep:wasmtime", "dep:wasmtime-wasi", "dep:anyhow", "dep:base64", "dep:url"]
+
 [dependencies]
+anyhow = { version = "1", optional = true }
+base64 = { version = "0.22", optional = true }
 clap = { version = "4.5.54", features = ["derive"] }
 console = "0.16.2"
 crossterm = "0.29.0"
@@ -21,7 +29,24 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.148"
 sysinfo = "0.37.2"
 ureq = { version = "2.12", features = ["tls"] }
+url = { version = "2", optional = true }
 viuer = { version = "0.11.0", default-features = false }
+wasmtime = { version = "48", optional = true, default-features = false, features = [
+    "std",
+    "runtime",
+    "cranelift",
+    "component-model",
+    "wat",
+    "cache",
+    "parallel-compilation",
+] }
+wasmtime-wasi = { version = "48", optional = true, default-features = false, features = [
+    "p1",
+    "p2",
+] }
 xfetch-plugin-api = { version = "0.1.0", package = "xfetch-plugin-api" }
 xfetch-extension-api = { version = "0.1.0", package = "xfetch-extension-api" }
 xfetch-effect-api = { version = "0.1.0", package = "xfetch-effect-api" }
+
+[dev-dependencies]
+wat = "1"

@@ -1,22 +1,37 @@
-use crate::extensions::{default_extension_dir, extension_binary_name, extract_extension_name};
+use crate::extensions::{
+    default_extension_dir, extension_binary_name, extension_manifest_name, extension_wasm_name,
+    extract_extension_name,
+};
 use std::fs;
 use std::path::PathBuf;
 
+/// Removes an extension regardless of its runtime: the native binary, the
+/// wasm artifact and the wasm sidecar manifest are all cleaned up.
 pub fn remove_extension(name: &str) -> Result<(), String> {
-    let binary_name = extension_binary_name(name);
     let ext_dir = default_extension_dir();
-    let binary_path = ext_dir.join(&binary_name);
+    let candidates = [
+        ext_dir.join(extension_binary_name(name)),
+        ext_dir.join(extension_wasm_name(name)),
+        ext_dir.join(extension_manifest_name(name)),
+    ];
 
-    if binary_path.is_file() {
-        fs::remove_file(&binary_path)
-            .map_err(|err| format!("Failed to remove extension '{}': {}", name, err))?;
+    let mut removed = false;
+    for path in &candidates {
+        if path.is_file() {
+            fs::remove_file(path)
+                .map_err(|err| format!("Failed to remove extension '{}': {}", name, err))?;
+            removed = true;
+        }
+    }
+
+    if removed {
         println!("Removed extension '{}'", name);
         Ok(())
     } else {
         Err(format!(
-            "Extension '{}' is not installed (not found at {})",
+            "Extension '{}' is not installed (not found in {})",
             name,
-            binary_path.display()
+            ext_dir.display()
         ))
     }
 }

@@ -2,6 +2,7 @@ use crate::plugins::{
     CARGO_CMD, CARGO_TOML, ENV_CARGO_NET_GIT_FETCH_WITH_CLI, GIT_CMD, PLUGIN_PREFIX,
     TARGET_RELEASE, default_plugin_dir, default_plugin_repo, plugin_binary_name,
 };
+use crate::wasm::install::SourceAction;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -9,6 +10,19 @@ use std::process::{Command, Stdio};
 
 fn has_path_separator(name: &str) -> bool {
     name.contains('/') || name.contains('\\')
+}
+
+/// True for http(s) URLs, which install prebuilt wasm artifacts directly.
+fn is_url(value: &str) -> bool {
+    value.starts_with("http://") || value.starts_with("https://")
+}
+
+/// Derives the plugin name from a direct wasm file path, stripping the
+/// conventional `xfetch-plugin-` prefix when present.
+fn plugin_name_from_wasm_file(path: &Path) -> Option<String> {
+    let stem = path.file_stem()?.to_str()?;
+    let name = stem.strip_prefix("xfetch-plugin-").unwrap_or(stem);
+    (!name.is_empty()).then(|| name.to_string())
 }
 
 fn resolve_local_plugin_dir(path: &str) -> Result<PathBuf, String> {
@@ -41,6 +55,34 @@ fn resolve_local_plugin_dir(path: &str) -> Result<PathBuf, String> {
 }
 
 pub fn install_plugin(name_or_path: &str, repo: Option<&str>) -> Result<(), String> {
+    // Direct URL: download a prebuilt wasm artifact from a release.
+    if is_url(name_or_path) {
+        let name = crate::wasm::install::name_from_path(name_or_path)
+            .ok_or_else(|| format!("Cannot derive a plugin name from URL '{}'", name_or_path))?;
+        return crate::wasm::install::download_and_install(
+            name_or_path,
+            None,
+            &default_plugin_dir(),
+            PLUGIN_PREFIX,
+            &name,
+            "plugin",
+        );
+    }
+
+    // Direct wasm file.
+    let direct = PathBuf::from(name_or_path);
+    if direct.is_file() && crate::wasm::is_wasm_file(&direct) {
+        let name = plugin_name_from_wasm_file(&direct)
+            .ok_or_else(|| format!("Cannot derive a plugin name from '{}'", name_or_path))?;
+        return crate::wasm::install::install_file(
+            &direct,
+            &default_plugin_dir(),
+            PLUGIN_PREFIX,
+            &name,
+            "plugin",
+        );
+    }
+
     let plugin_dir = resolve_local_plugin_dir(name_or_path);
 
     match plugin_dir {
@@ -58,6 +100,53 @@ pub fn install_plugin(name_or_path: &str, repo: Option<&str>) -> Result<(), Stri
 }
 
 fn build_and_install_plugin(plugin_dir: &Path, name: &str) -> Result<(), String> {
+    let plugin_name = plugin_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| "Invalid plugin directory name".to_string())?;
+
+    // Wasm sources (prebuilt artifact, artifact_url or build command) are
+    // installed through the shared wasm installer; native crates keep the
+    // cargo flow below.
+    match crate::wasm::install::plan(plugin_dir, "plugin", plugin_name)? {
+        SourceAction::Install(plan) => {
+            return crate::wasm::install::install(
+                plan,
+                &default_plugin_dir(),
+                PLUGIN_PREFIX,
+                plugin_name,
+                "plugin",
+            );
+        }
+        SourceAction::Download { url, manifest } => {
+            return crate::wasm::install::download_and_install(
+                &url,
+                manifest,
+                &default_plugin_dir(),
+                PLUGIN_PREFIX,
+                plugin_name,
+                "plugin",
+            );
+        }
+        SourceAction::BuildThenInstall { command } => {
+            crate::wasm::install::run_build(plugin_dir, &command)?;
+            return match crate::wasm::install::plan(plugin_dir, "plugin", plugin_name)? {
+                SourceAction::Install(plan) => crate::wasm::install::install(
+                    plan,
+                    &default_plugin_dir(),
+                    PLUGIN_PREFIX,
+                    plugin_name,
+                    "plugin",
+                ),
+                _ => Err(format!(
+                    "Build command in '{}' did not produce a wasm artifact",
+                    plugin_dir.display()
+                )),
+            };
+        }
+        SourceAction::NotWasm => {}
+    }
+
     if !plugin_dir.join(CARGO_TOML).exists() {
         let display = plugin_dir.display();
         if name.contains('/') || name.contains('\\') {
@@ -70,11 +159,6 @@ fn build_and_install_plugin(plugin_dir: &Path, name: &str) -> Result<(), String>
             name, display
         ));
     }
-
-    let plugin_name = plugin_dir
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| "Invalid plugin directory name".to_string())?;
 
     println!("Building plugin '{}'...", plugin_name);
     let status = Command::new(CARGO_CMD)
@@ -149,9 +233,15 @@ fn install_remote_plugin(name: &str, repo_url: &str) -> Result<(), String> {
         return Err("Failed to clone repository".to_string());
     }
 
-    let plugin_path = [temp_dir.join(name), temp_dir.join("plugins").join(name)]
-        .into_iter()
-        .find(|path| path.is_dir());
+    // The official repository nests plugin crates under `plugins/plugins/`;
+    // forks may keep them at the root or one level down.
+    let plugin_path = [
+        temp_dir.join(name),
+        temp_dir.join("plugins").join(name),
+        temp_dir.join("plugins").join("plugins").join(name),
+    ]
+    .into_iter()
+    .find(|path| path.is_dir());
 
     let Some(plugin_path) = plugin_path else {
         let _ = fs::remove_dir_all(&temp_dir);

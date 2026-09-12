@@ -1,22 +1,37 @@
-use crate::effects::{default_effect_dir, effect_binary_name, extract_effect_name};
+use crate::effects::{
+    default_effect_dir, effect_binary_name, effect_manifest_name, effect_wasm_name,
+    extract_effect_name,
+};
 use std::fs;
 use std::path::PathBuf;
 
+/// Removes an effect regardless of its runtime: the native binary, the wasm
+/// artifact and the wasm sidecar manifest are all cleaned up.
 pub fn remove_effect(name: &str) -> Result<(), String> {
-    let binary_name = effect_binary_name(name);
     let effect_dir = default_effect_dir();
-    let binary_path = effect_dir.join(&binary_name);
+    let candidates = [
+        effect_dir.join(effect_binary_name(name)),
+        effect_dir.join(effect_wasm_name(name)),
+        effect_dir.join(effect_manifest_name(name)),
+    ];
 
-    if binary_path.is_file() {
-        fs::remove_file(&binary_path)
-            .map_err(|err| format!("Failed to remove effect '{}': {}", name, err))?;
+    let mut removed = false;
+    for path in &candidates {
+        if path.is_file() {
+            fs::remove_file(path)
+                .map_err(|err| format!("Failed to remove effect '{}': {}", name, err))?;
+            removed = true;
+        }
+    }
+
+    if removed {
         println!("Removed effect '{}'", name);
         Ok(())
     } else {
         Err(format!(
-            "Effect '{}' is not installed (not found at {})",
+            "Effect '{}' is not installed (not found in {})",
             name,
-            binary_path.display()
+            effect_dir.display()
         ))
     }
 }
