@@ -106,7 +106,7 @@ resolve_target() {
         linux-aarch64) TARGET_TRIPLE="aarch64-unknown-linux-gnu" ;;
         macos-x86_64)  TARGET_TRIPLE="x86_64-apple-darwin" ;;
         macos-aarch64) TARGET_TRIPLE="aarch64-apple-darwin" ;;
-        windows-x86_64) die "On Windows use PowerShell: irm ${REPO_RAW}/install.ps1 | iex" ;;
+        windows-x86_64) die "On Windows use PowerShell: irm ${REPO_RAW}/install-prebuilt.ps1 | iex" ;;
         *) die "No prebuilt binary for ${OS_NAME}-${ARCH_NAME}. Use install.sh (builds from source)." ;;
     esac
     [ "${FLAG_VERBOSE}" -eq 1 ] && log "Target: ${TARGET_TRIPLE}"
