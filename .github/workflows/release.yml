@@ -93,12 +93,14 @@ jobs:
           for f in *.tar.gz; do
             [ -e "$f" ] || continue
             tar -tzf "$f" > /dev/null
-            tar -tzf "$f" | grep -Eq '(^|/)xfetch$' || { echo "$f does not contain xfetch"; exit 1; }
+            listing="$(tar -tzf "$f")"
+            grep -Eq '(^|/)xfetch$' <<< "$listing" || { echo "$f does not contain xfetch"; exit 1; }
           done
           for f in *.zip; do
             [ -e "$f" ] || continue
             unzip -t "$f" > /dev/null
-            unzip -Z1 "$f" | grep -Eq '(^|/)xfetch\.exe$' || { echo "$f does not contain xfetch.exe"; exit 1; }
+            listing="$(unzip -Z1 "$f")"
+            grep -Eq '(^|/)xfetch\.exe$' <<< "$listing" || { echo "$f does not contain xfetch.exe"; exit 1; }
           done
 
       - name: Generate checksums
