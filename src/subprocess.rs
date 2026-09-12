@@ -67,13 +67,29 @@ pub fn run_cmd_with_stdin_timeout(
     stdin_data: Option<&[u8]>,
     timeout: Option<Duration>,
 ) -> Option<Output> {
+    run_cmd_env_with_stdin_timeout(cmd, args, None, stdin_data, timeout)
+}
+
+/// Same as [`run_cmd_with_stdin_timeout`] with explicit environment control.
+///
+/// `env: None` inherits the parent environment (native plugin behavior).
+/// `env: Some(pairs)` clears the environment and sets exactly `pairs`, which
+/// is what the wasm `exec` host operation uses to enforce `exec.env`.
+pub fn run_cmd_env_with_stdin_timeout(
+    cmd: &Path,
+    args: &[&str],
+    env: Option<&[(String, String)]>,
+    stdin_data: Option<&[u8]>,
+    timeout: Option<Duration>,
+) -> Option<Output> {
     #[cfg(unix)]
     if let Some(s) = cmd.to_str()
         && !binary_reachable(s)
     {
         return None;
     }
-    let mut child = std::process::Command::new(cmd)
+    let mut command = std::process::Command::new(cmd);
+    command
         .args(args)
         .stdin(if stdin_data.is_some() {
             Stdio::piped()
@@ -81,9 +97,12 @@ pub fn run_cmd_with_stdin_timeout(
             Stdio::null()
         })
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .ok()?;
+        .stderr(Stdio::piped());
+    if let Some(env) = env {
+        command.env_clear();
+        command.envs(env.iter().map(|(name, value)| (name, value)));
+    }
+    let mut child = command.spawn().ok()?;
 
     if let (Some(mut stdin), Some(data)) = (child.stdin.take(), stdin_data) {
         // The child may exit early (e.g. invalid request): ignore the write

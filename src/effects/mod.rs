@@ -14,6 +14,7 @@ pub mod manage;
 
 use crate::config::{EffectConfig, config_dir, config_search_dirs};
 use crate::subprocess::run_cmd_with_stdin_timeout;
+use crate::wasm::{self, GuestKind};
 use std::env;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -52,16 +53,28 @@ pub fn effect_binary_name(name: &str) -> String {
     }
 }
 
+/// Installed wasm artifact name: `xfetch-effect-<name>.wasm`.
+pub fn effect_wasm_name(name: &str) -> String {
+    format!("{}.wasm", effect_binary_name(name))
+}
+
+/// Sidecar manifest name next to the wasm artifact.
+pub fn effect_manifest_name(name: &str) -> String {
+    format!("{}.json", effect_binary_name(name))
+}
+
 fn extract_effect_name(path: &Path) -> Option<String> {
     let filename = path.file_name()?.to_str()?;
-    if let Some(name) = filename.strip_prefix(EFFECT_PREFIX) {
-        if cfg!(target_os = "windows") {
-            name.strip_suffix(EXE_EXT).map(|n| n.to_string())
-        } else {
-            Some(name.to_string())
-        }
+    let name = filename.strip_prefix(EFFECT_PREFIX)?;
+    // Sidecar manifests are not effects.
+    if name.ends_with(".json") {
+        return None;
+    }
+    let name = name.strip_suffix(".wasm").unwrap_or(name);
+    if cfg!(target_os = "windows") {
+        name.strip_suffix(EXE_EXT).map(|n| n.to_string())
     } else {
-        None
+        Some(name.to_string())
     }
 }
 
@@ -79,24 +92,63 @@ fn find_in_path(binary_name: &str) -> Option<PathBuf> {
 /// Locates an installed effect binary (`xfetch-effect-<name>`) in the config
 /// dir (`xfetch/effects/`, falling back to `xfetch/plugins/`) and PATH.
 pub fn find_effect_binary(name: &str) -> Option<PathBuf> {
-    let binary_name = effect_binary_name(name);
+    let names = [effect_binary_name(name), effect_wasm_name(name)];
 
-    if let Some(path) = find_in_path(&binary_name) {
-        return Some(path);
+    for binary_name in &names {
+        if let Some(path) = find_in_path(binary_name) {
+            return Some(path);
+        }
     }
 
     for config_dir in config_search_dirs() {
-        let candidates = [
-            config_dir.join("xfetch").join("effects").join(&binary_name),
-            config_dir.join("xfetch").join("plugins").join(&binary_name),
-        ];
-        for candidate in candidates {
-            if candidate.is_file() {
-                return Some(candidate);
+        for binary_name in &names {
+            let candidates = [
+                config_dir.join("xfetch").join("effects").join(binary_name),
+                config_dir.join("xfetch").join("plugins").join(binary_name),
+            ];
+            for candidate in candidates {
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
             }
         }
     }
 
+    // Development-time wasm targets in sibling source directories.
+    if let Ok(cwd) = env::current_dir()
+        && let Some(candidate) = candidate_effect_wasm_from(&cwd, name)
+    {
+        return Some(candidate);
+    }
+
+    None
+}
+
+/// Looks for a built effect wasm artifact in conventional development
+/// locations (`target/wasm32-wasip1/release/xfetch-effect-<name>.wasm`) while
+/// walking up from the working directory.
+fn candidate_effect_wasm_from(base: &Path, name: &str) -> Option<PathBuf> {
+    let binary_name = effect_wasm_name(name);
+    let mut current = Some(base);
+    while let Some(dir) = current {
+        for sub in ["effects", "effects/effects"] {
+            let candidate = dir
+                .join(sub)
+                .join("target/wasm32-wasip1/release")
+                .join(&binary_name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+            let candidate = dir
+                .join(sub)
+                .join("target/wasm32-wasi/release")
+                .join(&binary_name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+        current = dir.parent();
+    }
     None
 }
 
@@ -122,6 +174,18 @@ pub fn run_effect(config: &EffectConfig, lines: &[String]) -> Result<Vec<EffectF
         .map_err(|err| format!("Failed to serialize effect request: {}", err))?;
 
     let timeout = config.timeout_secs.map(Duration::from_secs);
+
+    // Wasm guests reuse the JSON protocol through the sandboxed runtime.
+    if wasm::is_wasm_file(&path) {
+        let stdout = wasm::run_request(&path, &payload, timeout, GuestKind::Effect)?;
+        let response: EffectResponse = parse_json_slice(&stdout)
+            .map_err(|err| format!("Failed to parse effect output: {}", err))?;
+        response
+            .validate()
+            .map_err(|err| format!("Invalid effect response: {}", err))?;
+        return Ok(response.frames);
+    }
+
     let output = run_cmd_with_stdin_timeout(&path, &[], Some(&payload), timeout).ok_or_else(
         || match timeout {
             Some(d) => format!(

@@ -134,7 +134,9 @@ pub fn print_output(
 ) {
     let mut out = stdout();
 
-    let term_width = size().map(|(w, _)| w as usize).unwrap_or(80);
+    // Some pseudo-terminals report a zero width (CI, `script` without stty);
+    // clamp so the geometry math below never divides by zero.
+    let term_width = size().map(|(w, _)| w as usize).unwrap_or(80).max(1);
     let gap_base = config.logo_gap.unwrap_or(12) as usize;
     let gap = console::measure_text_width(LOGO_INFO_GAP) + gap_base;
 
@@ -195,7 +197,9 @@ pub fn compute_frame_geometry(
         .unwrap_or(0);
     let max_lines = std::cmp::max(max_logo_lines, content_lines.len());
 
-    let term_width = size().map(|(w, _)| w as usize).unwrap_or(80);
+    // Some pseudo-terminals report a zero width (CI, `script` without stty);
+    // clamp so the geometry math below never divides by zero.
+    let term_width = size().map(|(w, _)| w as usize).unwrap_or(80).max(1);
     let gap_base = config.logo_gap.unwrap_or(12) as usize;
     let gap_len = console::measure_text_width(LOGO_INFO_GAP) + gap_base;
     let max_content_width = content_lines

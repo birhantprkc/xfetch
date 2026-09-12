@@ -47,6 +47,9 @@
     <tr><td><code>xfetch plugin install|list|remove &lt;name&gt;</code></td><td>Manage plugins. See <a href="PLUGINS.md">PLUGINS.md</a>.</td></tr>
     <tr><td><code>xfetch extension install|list|remove &lt;name&gt;</code></td><td>Manage extensions. See <a href="EXTENSIONS.md">EXTENSIONS.md</a>.</td></tr>
     <tr><td><code>xfetch theme list|set|remove|export &lt;name&gt;</code></td><td>Manage themes. See <a href="THEMES.md">THEMES.md</a>.</td></tr>
+    <tr><td><code>xfetch effects install|list|remove &lt;name&gt;</code></td><td>Manage intro effects. See <a href="EFFECTS.md">EFFECTS.md</a>.</td></tr>
+    <tr><td><code>xfetch wasm inspect|run|wit</code></td><td>WebAssembly guest tooling. See <a href="WASM.md">WASM.md</a>.</td></tr>
+    <tr><td><code>xfetch update [--check] [--prebuilt] [--bin-dir &lt;dir&gt;] [--yes]</code></td><td>Check for a newer release and install it when the install method is recognized. See <a href="INSTALLATION.md">INSTALLATION.md</a>.</td></tr>
   </tbody>
 </table>
 

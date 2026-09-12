@@ -2,6 +2,7 @@ use crate::config::ConfigProviderConfig;
 use crate::extensions::find_extension_binary;
 use crate::extensions::types::{ConfigProviderRequest, ConfigProviderResponse};
 use crate::subprocess::run_cmd_with_stdin_timeout;
+use crate::wasm::{self, GuestKind};
 use std::time::Duration;
 
 pub fn run_config_provider(
@@ -17,6 +18,15 @@ pub fn run_config_provider(
         .map_err(|err| format!("Failed to serialize extension request: {}", err))?;
 
     let timeout = config.timeout_secs.map(Duration::from_secs);
+
+    // Wasm guests reuse the JSON protocol through the sandboxed runtime.
+    if wasm::is_wasm_file(&extension_path) {
+        let stdout = wasm::run_request(&extension_path, &payload, timeout, GuestKind::Extension)?;
+        let response: ConfigProviderResponse = serde_json::from_slice(&stdout)
+            .map_err(|err| format!("Failed to parse extension output: {}", err))?;
+        return Ok(response.config);
+    }
+
     let output = run_cmd_with_stdin_timeout(&extension_path, &[], Some(&payload), timeout)
         .ok_or_else(|| match timeout {
             Some(d) => format!(

@@ -1,22 +1,37 @@
-use crate::plugins::{default_plugin_dir, extract_plugin_name, plugin_binary_name};
+use crate::plugins::{
+    default_plugin_dir, extract_plugin_name, plugin_binary_name, plugin_manifest_name,
+    plugin_wasm_name,
+};
 use std::fs;
 use std::path::PathBuf;
 
+/// Removes a plugin regardless of its runtime: the native binary, the wasm
+/// artifact and the wasm sidecar manifest are all cleaned up.
 pub fn remove_plugin(name: &str) -> Result<(), String> {
-    let binary_name = plugin_binary_name(name);
     let plugin_dir = default_plugin_dir();
-    let binary_path = plugin_dir.join(&binary_name);
+    let candidates = [
+        plugin_dir.join(plugin_binary_name(name)),
+        plugin_dir.join(plugin_wasm_name(name)),
+        plugin_dir.join(plugin_manifest_name(name)),
+    ];
 
-    if binary_path.is_file() {
-        fs::remove_file(&binary_path)
-            .map_err(|err| format!("Failed to remove plugin '{}': {}", name, err))?;
+    let mut removed = false;
+    for path in &candidates {
+        if path.is_file() {
+            fs::remove_file(path)
+                .map_err(|err| format!("Failed to remove plugin '{}': {}", name, err))?;
+            removed = true;
+        }
+    }
+
+    if removed {
         println!("Removed plugin '{}'", name);
         Ok(())
     } else {
         Err(format!(
-            "Plugin '{}' is not installed (not found at {})",
+            "Plugin '{}' is not installed (not found in {})",
             name,
-            binary_path.display()
+            plugin_dir.display()
         ))
     }
 }

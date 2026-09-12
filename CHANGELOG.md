@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-09-12 — v0.9.0
+
+### WebAssembly guests
+
+### Sandboxed wasm runtime
+
+- New `wasm` feature (enabled by default) adds a wasmtime 48 + wasmtime-wasi runtime for plugins, effects and extensions. Detection is content-based (8-byte header), native plugins keep the existing subprocess path untouched, and `--no-default-features` builds without the runtime.
+- Core modules (`wasm32-wasip1`) reuse the JSON protocol on stdin/stdout; components use the new `xfetch:runtime` WIT world with a typed `run` export and typed host imports.
+- Capability manifests (sidecar JSON or an embedded `xfetch:manifest` custom section) with deny-by-default `http`, `exec`, `fs`, `env` and `args` grants; every artifact runs under a wall-clock epoch timeout, memory cap and output caps even without a manifest.
+- Host operations for core modules: `http` (allowlisted, redirects re-checked per hop), `exec` (allowlisted, no shell, cleared environment), `log` and `version`, transported over a `host_call` ABI with guest-side allocator exports.
+- Guest logging is now filtered: only `warn`/`error` lines print by default, and `XFETCH_WASM_LOG_LEVEL` (`off`..`debug`) controls the threshold.
+- New `xfetch update` command: checks GitHub releases, detects how the binary was installed and only updates prebuilt installs in place (SHA256-verified, atomic replace with a single `xfetch.bak`); cargo installs go through `cargo install --force` and package-manager/local builds are never replaced. `--check` reports and exits 1 when an update exists.
+- `xfetch wasm inspect|run|wit` tooling, wasm-aware installers (prebuilt artifact, `build` command, `artifact_url` or direct URL/single-file installs), sidecar-aware list/remove, and a fix for remote repository layouts nested under `plugins/plugins/`.
+- `wit/xfetch-runtime.wit` vendored from the api repository with a sync test; component protocol docs in `docs/WASM.md`.
+- Fixed the `swap` icon in the `--gen-config` template: a U+FFFD replacement character was replaced with the Nerd Font glyph `nf-md-swap_horizontal` (U+F04E1), and a regression test now rejects replacement characters, control characters and emoji in generated configs.
+- Fixed a terminal-geometry divide by zero when a pseudo-terminal reports width 0.
+
+
 ## 2026-08-21 — v0.8.0
 
 - Add suppor for crates.io with cargo install xfetch-cli.

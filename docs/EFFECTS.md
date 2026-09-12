@@ -31,6 +31,24 @@ xfetch effects remove decrypt</code></pre>
 <code>--repo &lt;url&gt;</code> (or the <code>XFETCH_EFFECT_REPO</code> env var) to install
 from a fork or mirror.</p>
 
+<h2>WebAssembly Effects</h2>
+
+<p>
+  Effects can be compiled to WebAssembly and installed exactly like native
+  ones. The core detects the binary header and runs the guest in the sandbox,
+  enforcing the manifest limits through wasmtime epochs. Examples include a
+  Rust core module (<code>wasm-matrix</code>) and a Python component
+  (<code>wasm-python-pulse</code>).
+</p>
+
+<pre><code class="language-bash">xfetch effects install ./effects/wasm-matrix
+xfetch effects install ./effects/wasm-python-pulse</code></pre>
+
+<p>
+  Effects produce frames on stdout like any other plugin, so the same manifest
+  and host-call rules apply. See <a href="WASM.md">WASM.md</a>.
+</p>
+
 <h2>Configuration</h2>
 
 <pre><code class="language-jsonc">{

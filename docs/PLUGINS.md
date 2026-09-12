@@ -33,6 +33,37 @@
   the resulting binary into the xfetch plugin directory.
 </p>
 
+<h2>WebAssembly Plugins</h2>
+
+<p>
+  A plugin can be a WebAssembly artifact instead of a native executable. The
+  core detects wasm binaries by their header, runs them in a sandboxed wasmtime
+  runtime and keeps the same JSON protocol, so configuration, listing and
+  timeouts behave identically. Wasm plugins can be written in Rust, Python,
+  Go, C and other languages that target <code>wasm32-wasip1</code> or the
+  component model.
+</p>
+
+<pre><code class="language-bash">xfetch plugin install ./plugins/wasm-pacman
+xfetch plugin install https://example.com/releases/plugin.wasm
+xfetch wasm inspect ~/.config/xfetch/plugins/xfetch-plugin-wasm-pacman.wasm
+xfetch wasm run ./plugin.wasm --request '{"version":1,"kind":"info_provider"}'</code></pre>
+
+<p>
+  Capabilities (HTTP, processes, filesystem, environment) and limits are
+  declared in a manifest next to the artifact. See
+  <a href="WASM.md">WASM.md</a> for the full reference and the example
+  plugins.
+</p>
+
+<blockquote>
+  <strong>Timeouts:</strong> wasm guests do not use
+  <code>with_timeout</code> worker threads (not available on
+  <code>wasm32-wasip1</code>); the runtime enforces the deadline through
+  wasmtime epochs, using the manifest <code>timeout_ms</code> or the config
+  <code>timeout_secs</code> value.
+</blockquote>
+
 <h2>Configuration</h2>
 
 <p>

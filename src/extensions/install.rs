@@ -1,10 +1,23 @@
 use crate::extensions::{
     DEFAULT_EXTENSION_REPO, EXTENSION_PREFIX, default_extension_dir, extension_binary_name,
 };
+use crate::wasm::install::SourceAction;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+
+/// True for http(s) URLs, which install prebuilt wasm artifacts directly.
+fn is_url(value: &str) -> bool {
+    value.starts_with("http://") || value.starts_with("https://")
+}
+
+/// Derives the extension name from a direct wasm file path.
+fn extension_name_from_wasm_file(path: &Path) -> Option<String> {
+    let stem = path.file_stem()?.to_str()?;
+    let name = stem.strip_prefix("xfetch-extension-").unwrap_or(stem);
+    (!name.is_empty()).then(|| name.to_string())
+}
 
 const CARGO_CMD: &str = "cargo";
 const CARGO_TOML: &str = "Cargo.toml";
@@ -48,6 +61,38 @@ fn resolve_local_extension_dir(path: &str) -> Result<PathBuf, String> {
 }
 
 pub fn install_extension(name_or_path: &str, repo: Option<&str>) -> Result<(), String> {
+    // Direct URL: download a prebuilt wasm artifact from a release.
+    if is_url(name_or_path) {
+        let name = crate::wasm::install::name_from_path(name_or_path).ok_or_else(|| {
+            format!(
+                "Cannot derive an extension name from URL '{}'",
+                name_or_path
+            )
+        })?;
+        return crate::wasm::install::download_and_install(
+            name_or_path,
+            None,
+            &default_extension_dir(),
+            EXTENSION_PREFIX,
+            &name,
+            "extension",
+        );
+    }
+
+    // Direct wasm file.
+    let direct = PathBuf::from(name_or_path);
+    if direct.is_file() && crate::wasm::is_wasm_file(&direct) {
+        let name = extension_name_from_wasm_file(&direct)
+            .ok_or_else(|| format!("Cannot derive an extension name from '{}'", name_or_path))?;
+        return crate::wasm::install::install_file(
+            &direct,
+            &default_extension_dir(),
+            EXTENSION_PREFIX,
+            &name,
+            "extension",
+        );
+    }
+
     let ext_dir = resolve_local_extension_dir(name_or_path);
 
     match ext_dir {
@@ -62,6 +107,53 @@ pub fn install_extension(name_or_path: &str, repo: Option<&str>) -> Result<(), S
 }
 
 fn build_and_install_extension(ext_dir: &Path, name: &str) -> Result<(), String> {
+    let ext_name = ext_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| "Invalid extension directory name".to_string())?;
+
+    // Wasm sources (prebuilt artifact, artifact_url or build command) are
+    // installed through the shared wasm installer; native crates keep the
+    // cargo flow below.
+    match crate::wasm::install::plan(ext_dir, "extension", ext_name)? {
+        SourceAction::Install(plan) => {
+            return crate::wasm::install::install(
+                plan,
+                &default_extension_dir(),
+                EXTENSION_PREFIX,
+                ext_name,
+                "extension",
+            );
+        }
+        SourceAction::Download { url, manifest } => {
+            return crate::wasm::install::download_and_install(
+                &url,
+                manifest,
+                &default_extension_dir(),
+                EXTENSION_PREFIX,
+                ext_name,
+                "extension",
+            );
+        }
+        SourceAction::BuildThenInstall { command } => {
+            crate::wasm::install::run_build(ext_dir, &command)?;
+            return match crate::wasm::install::plan(ext_dir, "extension", ext_name)? {
+                SourceAction::Install(plan) => crate::wasm::install::install(
+                    plan,
+                    &default_extension_dir(),
+                    EXTENSION_PREFIX,
+                    ext_name,
+                    "extension",
+                ),
+                _ => Err(format!(
+                    "Build command in '{}' did not produce a wasm artifact",
+                    ext_dir.display()
+                )),
+            };
+        }
+        SourceAction::NotWasm => {}
+    }
+
     if !ext_dir.join(CARGO_TOML).exists() {
         let display = ext_dir.display();
         if name.contains('/') || name.contains('\\') {
@@ -74,11 +166,6 @@ fn build_and_install_extension(ext_dir: &Path, name: &str) -> Result<(), String>
             name, display
         ));
     }
-
-    let ext_name = ext_dir
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| "Invalid extension directory name".to_string())?;
 
     println!("Building extension '{}'...", ext_name);
     let status = Command::new(CARGO_CMD)
@@ -153,9 +240,16 @@ fn install_remote_extension(name: &str, repo_url: &str) -> Result<(), String> {
         return Err("Failed to clone repository".to_string());
     }
 
+    // The official repository nests extension crates under
+    // `extensions/extensions/`; forks may keep them at the root or one level
+    // down.
     let ext_path = [
         temp_dir.join(name),
         temp_dir.join(EXTENSIONS_SUBDIR).join(name),
+        temp_dir
+            .join(EXTENSIONS_SUBDIR)
+            .join(EXTENSIONS_SUBDIR)
+            .join(name),
     ]
     .into_iter()
     .find(|path| path.is_dir());

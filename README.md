@@ -137,6 +137,7 @@ yay -S xfetch-git        # build from source
 - **Daemon mode**: Pin an animated fetch at the top of the terminal and keep using the shell below.
 - **Live stats daemon**: Turn the pinned fetch into a live panel — re-probes cpu/memory/battery/... every few seconds (`daemon_live`), with hot reload of the config on the fly (`daemon_live_reload`).
 - **Themes, plugins & extensions**: Switch visual themes, extend info with plugins, and transform the config with extensions.
+- **WebAssembly guests**: Plugins, effects and extensions can be sandboxed `.wasm` artifacts written in Rust, Python, Go, C and more, with manifest-based capabilities. See [docs/WASM.md](docs/WASM.md).
 
 <h2 id="configuration" align="center"> Configuration </h2>
 
@@ -194,6 +195,8 @@ xfetch plugin install <name>    # install a plugin
 xfetch extension install <name> # install an extension
 xfetch theme list               # list themes
 xfetch effects install <name>   # install an intro effect (e.g. decrypt)
+xfetch update --check           # check for a newer release
+xfetch update                   # update to the latest release
 ```
 
 > Full documentation: see the docs below.

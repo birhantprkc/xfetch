@@ -81,10 +81,7 @@ fn parse_public_ip(body: &str) -> Option<IpAddr> {
 
 fn fetch_public_ip_from(host: &str) -> Option<String> {
     // Cap the body at 64 bytes: a public IP is at most 45 chars.
-    let response = AGENT
-        .get(&format!("https://{host}/"))
-        .call()
-        .ok()?;
+    let response = AGENT.get(&format!("https://{host}/")).call().ok()?;
     let mut body = String::new();
     response
         .into_reader()

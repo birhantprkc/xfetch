@@ -10,6 +10,9 @@ mod plugins;
 mod subprocess;
 mod themes;
 mod ui;
+#[cfg(feature = "update")]
+mod update;
+mod wasm;
 
 use crate::config::{generate_config, load_config};
 use crate::effects::{install_effect, list_effects, remove_effect};
@@ -19,7 +22,9 @@ use crate::plugins::{install_plugin, list_plugins, remove_plugin};
 use crate::themes::{export_current_theme, list_themes, remove_theme, set_active_theme};
 use crate::ui::draw;
 use clap::Parser;
-use cli::{Cli, Commands, EffectCommands, ExtensionCommands, PluginCommands, ThemeCommands};
+use cli::{
+    Cli, Commands, EffectCommands, ExtensionCommands, PluginCommands, ThemeCommands, WasmCommands,
+};
 use std::path::PathBuf;
 
 fn main() {
@@ -66,12 +71,12 @@ fn run(cli: Cli) -> Result<(), error::XFetchError> {
     }
 
     match cli.command {
-        Some(Commands::Plugin { action }) => {
-            match action {
-                PluginCommands::Install { path, repo } => {
-                    install_plugin(&path, repo.as_deref()).map_err(error::XFetchError::Fatal)
-                }
-                PluginCommands::List => list_plugins()
+        Some(Commands::Plugin { action }) => match action {
+            PluginCommands::Install { path, repo } => {
+                install_plugin(&path, repo.as_deref()).map_err(error::XFetchError::Fatal)
+            }
+            PluginCommands::List => {
+                list_plugins()
                     .map_err(error::XFetchError::Fatal)
                     .map(|plugins| {
                         if plugins.is_empty() {
@@ -86,55 +91,55 @@ fn run(cli: Cli) -> Result<(), error::XFetchError> {
                                 println!("  {}  ({})", name, path.display());
                             }
                         }
+                    })
+            }
+            PluginCommands::Remove { name } => {
+                remove_plugin(&name).map_err(error::XFetchError::Fatal)
+            }
+        },
+        Some(Commands::Extension { action }) => {
+            match action {
+                ExtensionCommands::Install { path, repo } => {
+                    install_extension(&path, repo.as_deref()).map_err(error::XFetchError::Fatal)
+                }
+                ExtensionCommands::List => list_extensions()
+                    .map_err(error::XFetchError::Fatal)
+                    .map(|extensions| {
+                        if extensions.is_empty() {
+                            println!("No extensions installed.");
+                            println!(
+                                "Extension directory: {}",
+                                extensions::default_extension_dir().display()
+                            );
+                        } else {
+                            println!("Installed extensions:");
+                            for (name, path) in &extensions {
+                                println!("  {}  ({})", name, path.display());
+                            }
+                        }
                     }),
-                PluginCommands::Remove { name } => {
-                    remove_plugin(&name).map_err(error::XFetchError::Fatal)
+                ExtensionCommands::Remove { name } => {
+                    remove_extension(&name).map_err(error::XFetchError::Fatal)
                 }
             }
         }
-        Some(Commands::Extension { action }) => match action {
-            ExtensionCommands::Install { path, repo } => {
-                install_extension(&path, repo.as_deref()).map_err(error::XFetchError::Fatal)
-            }
-            ExtensionCommands::List => list_extensions()
+        Some(Commands::Theme { action }) => match action {
+            ThemeCommands::List => list_themes()
                 .map_err(error::XFetchError::Fatal)
-                .map(|extensions| {
-                    if extensions.is_empty() {
-                        println!("No extensions installed.");
+                .map(|themes| {
+                    if themes.is_empty() {
+                        println!("No themes installed.");
                         println!(
-                            "Extension directory: {}",
-                            extensions::default_extension_dir().display()
+                            "Theme directory: {}",
+                            config::default_themes_dir().display()
                         );
                     } else {
-                        println!("Installed extensions:");
-                        for (name, path) in &extensions {
+                        println!("Available themes:");
+                        for (name, path) in &themes {
                             println!("  {}  ({})", name, path.display());
                         }
                     }
                 }),
-            ExtensionCommands::Remove { name } => {
-                remove_extension(&name).map_err(error::XFetchError::Fatal)
-            }
-        },
-        Some(Commands::Theme { action }) => match action {
-            ThemeCommands::List => {
-                list_themes()
-                    .map_err(error::XFetchError::Fatal)
-                    .map(|themes| {
-                        if themes.is_empty() {
-                            println!("No themes installed.");
-                            println!(
-                                "Theme directory: {}",
-                                config::default_themes_dir().display()
-                            );
-                        } else {
-                            println!("Available themes:");
-                            for (name, path) in &themes {
-                                println!("  {}  ({})", name, path.display());
-                            }
-                        }
-                    })
-            }
             ThemeCommands::Set { name } => {
                 let config_path = cli
                     .config
@@ -159,12 +164,101 @@ fn run(cli: Cli) -> Result<(), error::XFetchError> {
                     })
             }
         },
-        Some(Commands::Effects { action }) => {
-            match action {
-                EffectCommands::Install { path, repo } => {
-                    install_effect(&path, repo.as_deref()).map_err(error::XFetchError::Fatal)
+        Some(Commands::Update {
+            check,
+            prebuilt,
+            bin_dir,
+            yes,
+        }) => {
+            #[cfg(feature = "update")]
+            {
+                let options = update::UpdateOptions {
+                    check,
+                    prebuilt,
+                    bin_dir: bin_dir.map(PathBuf::from),
+                    yes,
+                };
+                let outcome = update::run(options).map_err(error::XFetchError::Fatal)?;
+                match outcome {
+                    update::UpdateOutcome::UpToDate { current, latest } => {
+                        println!("xfetch {} is up to date (latest v{}).", current, latest);
+                    }
+                    update::UpdateOutcome::UpdateAvailable {
+                        current,
+                        latest,
+                        method,
+                        command,
+                    } => {
+                        println!("xfetch {} -> v{} available ({}).", current, latest, method);
+                        println!("  {}", command);
+                        std::process::exit(1);
+                    }
+                    update::UpdateOutcome::Updated { from, to, path } => {
+                        println!("Updated xfetch {} -> {} ({})", from, to, path.display());
+                    }
+                    update::UpdateOutcome::Manual { message } => println!("{}", message),
                 }
-                EffectCommands::List => list_effects()
+                Ok(())
+            }
+            #[cfg(not(feature = "update"))]
+            {
+                let _ = (check, prebuilt, bin_dir, yes);
+                Err(error::XFetchError::Fatal(
+                    "This xfetch binary was built without the 'update' feature.".to_string(),
+                ))
+            }
+        }
+        Some(Commands::Wasm { action }) => match action {
+            WasmCommands::Inspect { path, json } => {
+                wasm::inspect::inspect(std::path::Path::new(&path), json)
+                    .map_err(error::XFetchError::Fatal)
+            }
+            WasmCommands::Run {
+                path,
+                request,
+                request_file,
+                timeout,
+                kind,
+            } => {
+                let request = match (request, request_file) {
+                    (Some(_), Some(_)) => {
+                        Err("Use either --request or --request_file, not both".to_string())
+                    }
+                    (Some(request), None) => Ok(request.into_bytes()),
+                    (None, Some(file)) => std::fs::read(&file)
+                        .map_err(|err| format!("Failed to read '{}': {}", file, err)),
+                    (None, None) => Ok(b"{}".to_vec()),
+                }
+                .map_err(error::XFetchError::Fatal)?;
+
+                let kind = match kind.as_str() {
+                    "effect" => wasm::GuestKind::Effect,
+                    "extension" => wasm::GuestKind::Extension,
+                    _ => wasm::GuestKind::Plugin,
+                };
+                let timeout = timeout.map(std::time::Duration::from_secs);
+
+                wasm::run_request(std::path::Path::new(&path), &request, timeout, kind)
+                    .map_err(error::XFetchError::Fatal)
+                    .map(|response| {
+                        use std::io::Write;
+                        let stdout = std::io::stdout();
+                        let mut stdout = stdout.lock();
+                        let _ = stdout.write_all(&response);
+                        let _ = stdout.write_all(b"\n");
+                    })
+            }
+            WasmCommands::Wit => {
+                wasm::inspect::print_wit();
+                Ok(())
+            }
+        },
+        Some(Commands::Effects { action }) => match action {
+            EffectCommands::Install { path, repo } => {
+                install_effect(&path, repo.as_deref()).map_err(error::XFetchError::Fatal)
+            }
+            EffectCommands::List => {
+                list_effects()
                     .map_err(error::XFetchError::Fatal)
                     .map(|effects| {
                         if effects.is_empty() {
@@ -179,12 +273,12 @@ fn run(cli: Cli) -> Result<(), error::XFetchError> {
                                 println!("  {}  ({})", name, path.display());
                             }
                         }
-                    }),
-                EffectCommands::Remove { name } => {
-                    remove_effect(&name).map_err(error::XFetchError::Fatal)
-                }
+                    })
             }
-        }
+            EffectCommands::Remove { name } => {
+                remove_effect(&name).map_err(error::XFetchError::Fatal)
+            }
+        },
         None => {
             let config = load_config(cli.config.clone());
             let (info, bench_lines) = Info::with_config(&config, cli.benchmark);

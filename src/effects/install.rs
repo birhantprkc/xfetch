@@ -6,6 +6,7 @@ use crate::effects::{
     CARGO_CMD, CARGO_TOML, EFFECT_PREFIX, ENV_CARGO_NET_GIT_FETCH_WITH_CLI, GIT_CMD,
     TARGET_RELEASE, default_effect_dir, default_effect_repo, effect_binary_name,
 };
+use crate::wasm::install::SourceAction;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -13,6 +14,18 @@ use std::process::{Command, Stdio};
 
 fn has_path_separator(name: &str) -> bool {
     name.contains('/') || name.contains('\\')
+}
+
+/// True for http(s) URLs, which install prebuilt wasm artifacts directly.
+fn is_url(value: &str) -> bool {
+    value.starts_with("http://") || value.starts_with("https://")
+}
+
+/// Derives the effect name from a direct wasm file path.
+fn effect_name_from_wasm_file(path: &Path) -> Option<String> {
+    let stem = path.file_stem()?.to_str()?;
+    let name = stem.strip_prefix("xfetch-effect-").unwrap_or(stem);
+    (!name.is_empty()).then(|| name.to_string())
 }
 
 fn resolve_local_effect_dir(path: &str) -> Result<PathBuf, String> {
@@ -45,6 +58,34 @@ fn resolve_local_effect_dir(path: &str) -> Result<PathBuf, String> {
 }
 
 pub fn install_effect(name_or_path: &str, repo: Option<&str>) -> Result<(), String> {
+    // Direct URL: download a prebuilt wasm artifact from a release.
+    if is_url(name_or_path) {
+        let name = crate::wasm::install::name_from_path(name_or_path)
+            .ok_or_else(|| format!("Cannot derive an effect name from URL '{}'", name_or_path))?;
+        return crate::wasm::install::download_and_install(
+            name_or_path,
+            None,
+            &default_effect_dir(),
+            EFFECT_PREFIX,
+            &name,
+            "effect",
+        );
+    }
+
+    // Direct wasm file.
+    let direct = PathBuf::from(name_or_path);
+    if direct.is_file() && crate::wasm::is_wasm_file(&direct) {
+        let name = effect_name_from_wasm_file(&direct)
+            .ok_or_else(|| format!("Cannot derive an effect name from '{}'", name_or_path))?;
+        return crate::wasm::install::install_file(
+            &direct,
+            &default_effect_dir(),
+            EFFECT_PREFIX,
+            &name,
+            "effect",
+        );
+    }
+
     let effect_dir = resolve_local_effect_dir(name_or_path);
 
     match effect_dir {
@@ -62,6 +103,53 @@ pub fn install_effect(name_or_path: &str, repo: Option<&str>) -> Result<(), Stri
 }
 
 fn build_and_install_effect(effect_dir: &Path, name: &str) -> Result<(), String> {
+    let effect_name = effect_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| "Invalid effect directory name".to_string())?;
+
+    // Wasm sources (prebuilt artifact, artifact_url or build command) are
+    // installed through the shared wasm installer; native crates keep the
+    // cargo flow below.
+    match crate::wasm::install::plan(effect_dir, "effect", effect_name)? {
+        SourceAction::Install(plan) => {
+            return crate::wasm::install::install(
+                plan,
+                &default_effect_dir(),
+                EFFECT_PREFIX,
+                effect_name,
+                "effect",
+            );
+        }
+        SourceAction::Download { url, manifest } => {
+            return crate::wasm::install::download_and_install(
+                &url,
+                manifest,
+                &default_effect_dir(),
+                EFFECT_PREFIX,
+                effect_name,
+                "effect",
+            );
+        }
+        SourceAction::BuildThenInstall { command } => {
+            crate::wasm::install::run_build(effect_dir, &command)?;
+            return match crate::wasm::install::plan(effect_dir, "effect", effect_name)? {
+                SourceAction::Install(plan) => crate::wasm::install::install(
+                    plan,
+                    &default_effect_dir(),
+                    EFFECT_PREFIX,
+                    effect_name,
+                    "effect",
+                ),
+                _ => Err(format!(
+                    "Build command in '{}' did not produce a wasm artifact",
+                    effect_dir.display()
+                )),
+            };
+        }
+        SourceAction::NotWasm => {}
+    }
+
     if !effect_dir.join(CARGO_TOML).exists() {
         let display = effect_dir.display();
         if name.contains('/') || name.contains('\\') {
@@ -74,11 +162,6 @@ fn build_and_install_effect(effect_dir: &Path, name: &str) -> Result<(), String>
             name, display
         ));
     }
-
-    let effect_name = effect_dir
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| "Invalid effect directory name".to_string())?;
 
     println!("Building effect '{}'...", effect_name);
     let status = Command::new(CARGO_CMD)
@@ -153,9 +236,15 @@ fn install_remote_effect(name: &str, repo_url: &str) -> Result<(), String> {
         return Err("Failed to clone repository".to_string());
     }
 
-    let effect_path = [temp_dir.join(name), temp_dir.join("effects").join(name)]
-        .into_iter()
-        .find(|path| path.is_dir());
+    // The official repository nests effect crates under `effects/effects/`;
+    // forks may keep them at the root or one level down.
+    let effect_path = [
+        temp_dir.join(name),
+        temp_dir.join("effects").join(name),
+        temp_dir.join("effects").join("effects").join(name),
+    ]
+    .into_iter()
+    .find(|path| path.is_dir());
 
     let Some(effect_path) = effect_path else {
         let _ = fs::remove_dir_all(&temp_dir);
