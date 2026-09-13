@@ -147,7 +147,7 @@ pub fn install(
         .map_err(|err| format!("Failed to create {} directory: {}", label, err))?;
 
     let wasm_dest = dest_dir.join(format!("{}{}.wasm", prefix, name));
-    fs::copy(&plan.artifact, &wasm_dest).map_err(|err| {
+    crate::atomic_fs::copy_atomic(&plan.artifact, &wasm_dest).map_err(|err| {
         format!(
             "Failed to copy wasm artifact '{}': {}",
             plan.artifact.display(),
@@ -157,9 +157,9 @@ pub fn install(
 
     if let (Some(manifest_path), Some(manifest)) = (&plan.manifest_path, &plan.manifest) {
         let sidecar = dest_dir.join(format!("{}{}.json", prefix, name));
-        fs::write(
+        crate::atomic_fs::write_atomic(
             &sidecar,
-            serde_json::to_vec_pretty(manifest)
+            &serde_json::to_vec_pretty(manifest)
                 .map_err(|err| format!("Failed to serialize manifest: {}", err))?,
         )
         .map_err(|err| format!("Failed to write manifest '{}': {}", sidecar.display(), err))?;
@@ -210,7 +210,7 @@ pub fn download_and_install(
         .map_err(|err| format!("Failed to create {} directory: {}", label, err))?;
 
     let wasm_dest = dest_dir.join(format!("{}{}.wasm", prefix, name));
-    fs::write(&wasm_dest, &bytes)
+    crate::atomic_fs::write_atomic(&wasm_dest, &bytes)
         .map_err(|err| format!("Failed to write '{}': {}", wasm_dest.display(), err))?;
 
     if !is_wasm_file(&wasm_dest) {
@@ -223,9 +223,9 @@ pub fn download_and_install(
 
     if let Some(manifest) = manifest {
         let sidecar = dest_dir.join(format!("{}{}.json", prefix, name));
-        fs::write(
+        crate::atomic_fs::write_atomic(
             &sidecar,
-            serde_json::to_vec_pretty(&manifest)
+            &serde_json::to_vec_pretty(&manifest)
                 .map_err(|err| format!("Failed to serialize manifest: {}", err))?,
         )
         .map_err(|err| format!("Failed to write manifest '{}': {}", sidecar.display(), err))?;

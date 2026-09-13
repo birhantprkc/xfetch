@@ -117,7 +117,16 @@ try {
 
     New-Item -ItemType Directory -Path $BinDir -Force | Out-Null
     $installPath = Join-Path $BinDir "$Project.exe"
-    Copy-Item -Path $binary.FullName -Destination $installPath -Force
+    # Stage next to the destination and move: a failed copy must never
+    # truncate an existing installation.
+    $tempPath = Join-Path $BinDir (".$Project.xfetch-tmp-" + [guid]::NewGuid().ToString("N"))
+    try {
+        Copy-Item -Path $binary.FullName -Destination $tempPath -Force
+        Move-Item -Path $tempPath -Destination $installPath -Force
+    } catch {
+        Remove-Item -Path $tempPath -Force -ErrorAction SilentlyContinue
+        Fail "Could not install the binary: $($_.Exception.Message)"
+    }
     Write-Ok "Installed binary: $installPath"
 
     if (-not $NoPath -and $env:OS -eq "Windows_NT") {

@@ -205,7 +205,7 @@ fn build_and_install_extension(ext_dir: &Path, name: &str) -> Result<(), String>
         .map_err(|err| format!("Failed to create extension directory: {}", err))?;
 
     let dest_path = dest_dir.join(&binary_name);
-    fs::copy(&built_binary, &dest_path)
+    crate::atomic_fs::copy_atomic(&built_binary, &dest_path)
         .map_err(|err| format!("Failed to copy extension binary: {}", err))?;
 
     println!(
