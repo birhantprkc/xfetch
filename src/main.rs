@@ -1,3 +1,4 @@
+mod atomic_fs;
 mod cache;
 mod cli;
 mod config;

@@ -307,12 +307,16 @@ extract_binary() {
 
 install_binary() {
     mkdir -p "${BIN_DIR}"
+    # Stage next to the destination and rename: a failed copy must never
+    # truncate an existing installation.
+    local tmp_dest="${BIN_DIR}/.${PROJECT}.xfetch-tmp-$$"
     if command -v install >/dev/null 2>&1; then
-        install -m 755 "${BINARY_SRC}" "${BIN_DIR}/${PROJECT}"
+        install -m 755 "${BINARY_SRC}" "${tmp_dest}" || { rm -f "${tmp_dest}"; die "Failed to copy the binary into ${BIN_DIR}."; }
     else
-        cp "${BINARY_SRC}" "${BIN_DIR}/${PROJECT}"
-        chmod 755 "${BIN_DIR}/${PROJECT}"
+        cp "${BINARY_SRC}" "${tmp_dest}" || { rm -f "${tmp_dest}"; die "Failed to copy the binary into ${BIN_DIR}."; }
+        chmod 755 "${tmp_dest}"
     fi
+    mv -f "${tmp_dest}" "${BIN_DIR}/${PROJECT}"
     ok "Installed binary: ${BIN_DIR}/${PROJECT}"
 }
 
